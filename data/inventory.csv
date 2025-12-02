@@ -1,0 +1,351 @@
+Product_ID,Stock,Closing_Stock,Min_stock_level,Unit,Product_Name,Date
+P-0001,87,87,42,szt.,HP Laptops Model 298,9/1/2025
+P-0002,72,72,29,op.,Navigator Paper 643 op.,9/1/2025
+P-0003,0,0,129,op.,Papyrus Paper Model 522,9/1/2025
+P-0004,0,0,54,szt.,Bosch Tools Model 429,9/1/2025
+P-0005,0,0,81,szt.,Uvex Safety glasses 779,9/1/2025
+P-0006,0,0,90,szt.,Siemens Sensors Model 208,9/1/2025
+P-0007,0,0,61,szt.,Samsung Monitors Model 944,9/1/2025
+P-0008,0,0,104,szt.,SKF Bearings Model 874,9/1/2025
+P-0009,0,0,30,szt.,Honeywell Safety glasses Model 232,9/1/2025
+P-0010,0,0,117,szt.,Sachs Engine parts 450,9/1/2025
+P-0011,0,0,85,L,Total Oils 819L,9/1/2025
+P-0012,0,0,180,szt.,BIC Pens 163,9/1/2025
+P-0013,0,0,27,szt.,Honeywell Safety glasses 887,9/1/2025
+P-0014,0,0,62,szt.,Milwaukee Tools 443,9/1/2025
+P-0015,0,0,50,szt.,BIC Pens 103,9/1/2025
+P-0016,0,0,21,szt.,DeWalt Tools 515,9/1/2025
+P-0017,0,0,45,licencja,Microsoft Software 999,9/1/2025
+P-0018,0,0,16,szt.,Siemens Motors 796,9/1/2025
+P-0019,0,0,1,licencja,Adobe Software 759,9/1/2025
+P-0020,0,0,7,szt.,3M Helmets 338,9/1/2025
+P-0021,0,0,44,para,Uvex Gloves Model 145,9/1/2025
+P-0022,0,0,12,para,Honeywell Gloves Model 259,9/1/2025
+P-0023,0,0,2,szt.,Mahle Filters 477,9/1/2025
+P-0024,0,0,65,szt.,Xerox Toner 151,9/1/2025
+P-0025,0,0,63,szt.,BIC Pens Model 740,9/1/2025
+P-0026,0,0,53,szt.,Gates Engine parts 379,9/1/2025
+P-0027,0,0,50,szt.,IKEA Office chairs Model 477,9/1/2025
+P-0028,0,0,103,szt.,Wurth Screws 413,9/1/2025
+P-0029,0,0,12,szt.,Bosch Engine parts Model 132,9/1/2025
+P-0030,0,0,80,op.,Xerox Paper 153 op.,9/1/2025
+P-0031,0,0,85,szt.,Portwest Workwear Model 390,9/1/2025
+P-0032,0,0,52,szt.,Gates Engine parts Model 115,9/1/2025
+P-0033,0,0,84,szt.,Helly Hansen Workwear Model 267,9/1/2025
+P-0034,0,0,49,op.,Navigator Paper 836 op.,9/1/2025
+P-0035,0,0,24,szt.,Nowy Styl Office chairs 420,9/1/2025
+P-0036,0,0,3,szt.,Lenovo Laptops 221,9/1/2025
+P-0037,0,0,79,szt.,Mann Filters 571,9/1/2025
+P-0038,0,0,90,szt.,REX Screws Model 266,9/1/2025
+P-0039,0,0,25,szt.,Dell Monitors Model 664,9/1/2025
+P-0040,0,0,21,szt.,Dell Laptops 886,9/1/2025
+P-0041,0,0,52,szt.,Mahle Filters 384,9/1/2025
+P-0042,0,0,83,licencja,Microsoft Software Model 985,9/1/2025
+P-0043,0,0,90,para,Honeywell Gloves Model 797,9/1/2025
+P-0044,0,0,10,szt.,NTN Bearings 355,9/1/2025
+P-0045,0,0,45,szt.,Sachs Engine parts Model 494,9/1/2025
+P-0046,0,0,58,szt.,DeWalt Tools 590,9/1/2025
+P-0047,0,0,45,szt.,Siemens Sensors Model 475,9/1/2025
+P-0048,0,0,51,szt.,BIC Pens Model 308,9/1/2025
+P-0049,0,0,55,szt.,Sachs Engine parts 231,9/1/2025
+P-0050,0,0,73,szt.,Portwest Workwear 502,9/1/2025
+P-0051,0,0,13,szt.,Brother Printers 174,9/1/2025
+P-0052,0,0,49,szt.,LG Monitors 200,9/1/2025
+P-0053,0,0,31,szt.,Brother Toner Model 588,9/1/2025
+P-0054,0,0,94,szt.,SKF Bearings Model 107,9/1/2025
+P-0055,0,0,26,szt.,Mann Filters Model 376,9/1/2025
+P-0056,0,0,29,szt.,Xerox Toner Model 540,9/1/2025
+P-0057,0,0,87,szt.,Uvex Safety glasses 501,9/1/2025
+P-0058,0,0,9,szt.,Xerox Toner 562,9/1/2025
+P-0059,0,0,59,szt.,Stabilo Pens Model 330,9/1/2025
+P-0060,0,0,77,szt.,Stabilo Pens 199,9/1/2025
+P-0061,0,0,40,szt.,SKF Bearings 305,9/1/2025
+P-0062,0,0,64,szt.,Xerox Toner 651,9/1/2025
+P-0063,0,0,39,szt.,Ardon Workwear 121,9/1/2025
+P-0064,0,0,54,szt.,HP Printers 275,9/1/2025
+P-0065,0,0,33,szt.,3M Helmets 818,9/1/2025
+P-0066,0,0,1,op.,Xerox Paper Model 244,9/1/2025
+P-0067,0,0,115,szt.,Bosch Engine parts 487,9/1/2025
+P-0068,0,0,68,szt.,Wurth Screws 207,9/1/2025
+P-0069,0,0,102,szt.,Makita Tools Model 462,9/1/2025
+P-0070,0,0,38,szt.,Siemens Sensors 515,9/1/2025
+P-0071,0,0,17,szt.,Samsung Monitors Model 493,9/1/2025
+P-0072,0,0,70,szt.,BIC Pens Model 714,9/1/2025
+P-0073,0,0,57,op.,Papyrus Paper Model 828,9/1/2025
+P-0074,0,0,117,L,Mobil Oils 514L,9/1/2025
+P-0075,0,0,77,para,Ansell Gloves Rękawice 979,9/1/2025
+P-0076,0,0,20,szt.,NTN Bearings 636,9/1/2025
+P-0077,0,0,38,szt.,Milwaukee Tools 349,9/1/2025
+P-0078,0,0,67,szt.,HP Printers 417,9/1/2025
+P-0079,0,0,35,szt.,3M Safety glasses 207,9/1/2025
+P-0080,0,0,99,szt.,Mann Filters 324,9/1/2025
+P-0081,0,0,33,szt.,3M Helmets 757,9/1/2025
+P-0082,0,0,24,szt.,Makita Tools 948,9/1/2025
+P-0083,0,0,19,szt.,FAG Bearings Model 446,9/1/2025
+P-0084,0,0,46,szt.,HP Laptops 171,9/1/2025
+P-0085,0,0,127,szt.,Canon Printers Model 247,9/1/2025
+P-0086,0,0,139,szt.,Siemens Motors 957,9/1/2025
+P-0087,0,0,79,szt.,Asus Laptops 814,9/1/2025
+P-0088,0,0,1,op.,Papyrus Paper 539 op.,9/1/2025
+P-0089,0,0,13,szt.,Brother Printers 286,9/1/2025
+P-0090,0,0,67,szt.,Bosch Engine parts 339,9/1/2025
+P-0091,0,0,27,szt.,Dell Laptops Model 530,9/1/2025
+P-0092,0,0,13,szt.,Canon Printers 771,9/1/2025
+P-0093,0,0,98,szt.,Bosch Filters 887,9/1/2025
+P-0094,0,0,11,szt.,NTN Bearings Model 142,9/1/2025
+P-0095,0,0,34,licencja,Microsoft Software Model 978,9/1/2025
+P-0096,0,0,21,licencja,Adobe Software Model 534,9/1/2025
+P-0097,0,0,84,licencja,Microsoft Software 656,9/1/2025
+P-0098,0,0,79,szt.,Xerox Toner Model 461,9/1/2025
+P-0099,0,0,9,szt.,NTN Bearings 561,9/1/2025
+P-0100,0,0,102,szt.,Samsung Monitors Model 937,9/1/2025
+P-0101,0,0,95,szt.,Lenovo Laptops Model 847,9/1/2025
+P-0102,0,0,62,szt.,Bosch Engine parts 699,9/1/2025
+P-0103,0,0,3,szt.,Mahle Filters 613,9/1/2025
+P-0104,0,0,56,szt.,Brother Toner 350,9/1/2025
+P-0105,0,0,20,szt.,Sachs Engine parts Model 961,9/1/2025
+P-0106,0,0,108,szt.,Milwaukee Tools 577,9/1/2025
+P-0107,0,0,30,szt.,Petzl Helmets 262,9/1/2025
+P-0108,0,0,45,szt.,Mahle Filters 440,9/1/2025
+P-0109,0,0,16,szt.,Siemens Motors 555,9/1/2025
+P-0110,0,0,101,szt.,Siemens Sensors Model 227,9/1/2025
+P-0111,0,0,32,szt.,Stabilo Pens Model 371,9/1/2025
+P-0112,0,0,12,szt.,Mahle Filters Model 774,9/1/2025
+P-0113,0,0,75,szt.,3M Helmets 708,9/1/2025
+P-0114,0,0,94,szt.,Brother Toner 137,9/1/2025
+P-0115,0,0,36,para,Honeywell Gloves Model 902,9/1/2025
+P-0116,0,0,14,op.,Papyrus Paper 886 op.,9/1/2025
+P-0117,0,0,8,szt.,REX Screws Model 988,9/1/2025
+P-0118,0,0,27,szt.,HP Printers 478,9/1/2025
+P-0119,0,0,8,szt.,Stabilo Pens Model 829,9/1/2025
+P-0120,0,0,50,szt.,HP Printers 352,9/1/2025
+P-0121,0,0,5,para,Honeywell Gloves Rękawice 282,9/1/2025
+P-0122,0,0,88,szt.,Canon Printers 361,9/1/2025
+P-0123,0,0,92,para,Ansell Gloves Model 483,9/1/2025
+P-0124,0,0,67,szt.,Profim Office chairs Model 193,9/1/2025
+P-0125,0,0,76,szt.,Profim Office chairs 680,9/1/2025
+P-0126,0,0,106,szt.,Bosch Engine parts Model 267,9/1/2025
+P-0127,0,0,42,szt.,Wurth Screws Model 509,9/1/2025
+P-0128,0,0,67,szt.,Brother Printers Model 125,9/1/2025
+P-0129,0,0,40,op.,Xerox Paper 768 op.,9/1/2025
+P-0130,0,0,1,szt.,NTN Bearings Model 625,9/1/2025
+P-0131,0,0,22,L,Castrol Oils 773L,9/1/2025
+P-0132,0,0,44,szt.,IKEA Office chairs Model 453,9/1/2025
+P-0133,0,0,15,para,Honeywell Gloves Rękawice 20,9/1/2025
+P-0134,0,0,39,szt.,HP Laptops 911,9/1/2025
+P-0135,0,0,34,op.,Navigator Paper Model 150,9/1/2025
+P-0136,0,0,66,szt.,Makita Tools Model 634,9/1/2025
+P-0137,0,0,52,szt.,Asus Laptops Model 998,9/1/2025
+P-0138,0,0,53,op.,Xerox Paper Model 217,9/1/2025
+P-0139,0,0,2,szt.,Wurth Screws Model 872,9/1/2025
+P-0140,0,0,43,szt.,HP Toner 893,9/1/2025
+P-0141,0,0,45,szt.,LG Monitors 766,9/1/2025
+P-0142,0,0,52,szt.,Gates Engine parts Model 699,9/1/2025
+P-0143,0,0,86,szt.,Xerox Toner Model 502,9/1/2025
+P-0144,0,0,163,L,Shell Oils 259L,9/1/2025
+P-0145,0,0,15,szt.,ABB Motors Model 367,9/1/2025
+P-0146,0,0,33,szt.,IKEA Office chairs 642,9/1/2025
+P-0147,0,0,1,szt.,BIC Pens 969,9/1/2025
+P-0148,0,0,52,szt.,REX Screws Model 462,9/1/2025
+P-0149,0,0,104,szt.,Helly Hansen Workwear 802,9/1/2025
+P-0150,0,0,35,szt.,Dell Laptops Model 717,9/1/2025
+P-0151,0,0,120,szt.,Portwest Workwear 229,9/1/2025
+P-0152,0,0,35,szt.,DeWalt Tools 121,9/1/2025
+P-0153,0,0,65,szt.,Makita Tools Model 626,9/1/2025
+P-0154,0,0,103,szt.,Portwest Workwear Model 180,9/1/2025
+P-0155,0,0,13,szt.,ABB Motors Model 536,9/1/2025
+P-0156,0,0,92,szt.,Milwaukee Tools 450,9/1/2025
+P-0157,0,0,136,L,Shell Oils 971L,9/1/2025
+P-0158,0,0,62,licencja,Microsoft Software 934,9/1/2025
+P-0159,0,0,64,szt.,Nowy Styl Office chairs Model 309,9/1/2025
+P-0160,0,0,135,szt.,Honeywell Safety glasses Model 389,9/1/2025
+P-0161,0,0,46,szt.,Mahle Filters Model 612,9/1/2025
+P-0162,0,0,134,szt.,HP Laptops Model 453,9/1/2025
+P-0163,0,0,13,szt.,HP Toner 779,9/1/2025
+P-0164,0,0,102,szt.,Bosch Filters Model 838,9/1/2025
+P-0165,0,0,44,szt.,LG Monitors 668,9/1/2025
+P-0166,0,0,54,para,Uvex Gloves Model 123,9/1/2025
+P-0167,0,0,3,szt.,Profim Office chairs 367,9/1/2025
+P-0168,0,0,22,szt.,Dell Monitors 143,9/1/2025
+P-0169,0,0,75,szt.,SICK Sensors Model 536,9/1/2025
+P-0170,0,0,75,szt.,DeWalt Tools 112,9/1/2025
+P-0171,0,0,230,L,Castrol Oils 702L,9/1/2025
+P-0172,0,0,14,szt.,HP Toner 159,9/1/2025
+P-0173,0,0,161,L,Total Oils 428L,9/1/2025
+P-0174,0,0,75,szt.,Makita Tools Model 673,9/1/2025
+P-0175,0,0,48,szt.,Xerox Toner 830,9/1/2025
+P-0176,0,0,43,szt.,IKEA Office chairs 857,9/1/2025
+P-0177,0,0,94,szt.,Portwest Workwear Model 185,9/1/2025
+P-0178,0,0,100,szt.,Milwaukee Tools Model 960,9/1/2025
+P-0179,0,0,33,szt.,Canon Printers 347,9/1/2025
+P-0180,0,0,22,op.,Xerox Paper Model 793,9/1/2025
+P-0181,0,0,68,szt.,LG Monitors 907,9/1/2025
+P-0182,0,0,272,L,Castrol Oils 265L,9/1/2025
+P-0183,0,0,39,op.,Papyrus Paper Model 764,9/1/2025
+P-0184,0,0,14,para,Honeywell Gloves Model 753,9/1/2025
+P-0185,0,0,299,L,Shell Oils 837L,9/1/2025
+P-0186,0,0,48,szt.,Siemens Motors 526,9/1/2025
+P-0187,0,0,114,para,Ansell Gloves Model 531,9/1/2025
+P-0188,0,0,56,szt.,Wurth Screws 342,9/1/2025
+P-0189,0,0,31,szt.,Makita Tools Model 693,9/1/2025
+P-0190,0,0,2,szt.,REX Screws 598,9/1/2025
+P-0191,0,0,73,szt.,HP Toner 902,9/1/2025
+P-0192,0,0,13,szt.,Dell Laptops 950,9/1/2025
+P-0193,0,0,138,szt.,Siemens Motors 871,9/1/2025
+P-0194,0,0,123,szt.,ABB Motors 403,9/1/2025
+P-0195,0,0,19,szt.,Uvex Safety glasses 971,9/1/2025
+P-0196,0,0,163,L,Castrol Oils 371L,9/1/2025
+P-0197,0,0,40,op.,Navigator Paper Model 100,9/1/2025
+P-0198,0,0,35,szt.,WEG Motors Model 250,9/1/2025
+P-0199,0,0,66,L,Shell Oils 872L,9/1/2025
+P-0200,0,0,44,szt.,Samsung Monitors Model 719,9/1/2025
+P-0201,0,0,88,szt.,Petzl Helmets 833,9/1/2025
+P-0202,0,0,64,szt.,Nowy Styl Office chairs 612,9/1/2025
+P-0203,0,0,107,szt.,NTN Bearings 209,9/1/2025
+P-0204,0,0,68,szt.,Honeywell Safety glasses 178,9/1/2025
+P-0205,0,0,24,szt.,Siemens Sensors 598,9/1/2025
+P-0206,0,0,177,szt.,Uvex Safety glasses 886,9/1/2025
+P-0207,0,0,11,szt.,NTN Bearings 636,9/1/2025
+P-0208,0,0,6,op.,Navigator Paper 40 op.,9/1/2025
+P-0209,0,0,5,szt.,Xerox Toner 115,9/1/2025
+P-0210,0,0,13,szt.,Bosch Filters Model 644,9/1/2025
+P-0211,0,0,29,szt.,Brother Printers 353,9/1/2025
+P-0212,0,0,49,szt.,WEG Motors Model 175,9/1/2025
+P-0213,0,0,61,szt.,Bosch Filters 747,9/1/2025
+P-0214,0,0,102,szt.,BIC Pens 568,9/1/2025
+P-0215,0,0,11,licencja,Microsoft Software 204,9/1/2025
+P-0216,0,0,62,szt.,Bosch Tools 540,9/1/2025
+P-0217,0,0,34,licencja,Microsoft Software Model 547,9/1/2025
+P-0218,0,0,39,szt.,Dell Monitors 692,9/1/2025
+P-0219,0,0,53,szt.,Petzl Helmets Model 991,9/1/2025
+P-0220,0,0,374,L,Castrol Oils 610L,9/1/2025
+P-0221,0,0,40,szt.,Mahle Filters 429,9/1/2025
+P-0222,0,0,55,szt.,Wurth Screws Model 983,9/1/2025
+P-0223,0,0,8,szt.,Mann Filters Model 631,9/1/2025
+P-0224,0,0,72,szt.,Mann Filters Model 604,9/1/2025
+P-0225,0,0,28,szt.,BIC Pens 830,9/1/2025
+P-0226,0,0,14,szt.,Milwaukee Tools 168,9/1/2025
+P-0227,0,0,66,szt.,HP Toner Model 179,9/1/2025
+P-0228,0,0,107,L,Shell Oils 725L,9/1/2025
+P-0229,0,0,8,szt.,Stabilo Pens 452,9/1/2025
+P-0230,0,0,20,szt.,Valeo Engine parts 382,9/1/2025
+P-0231,0,0,76,szt.,Helly Hansen Workwear Model 379,9/1/2025
+P-0232,0,0,68,op.,Xerox Paper Model 662,9/1/2025
+P-0233,0,0,23,szt.,BIC Pens Model 395,9/1/2025
+P-0234,0,0,37,licencja,Microsoft Software 771,9/1/2025
+P-0235,0,0,73,szt.,Brother Printers 970,9/1/2025
+P-0236,0,0,53,szt.,Brother Printers Model 421,9/1/2025
+P-0237,0,0,21,szt.,Nowy Styl Office chairs Model 858,9/1/2025
+P-0238,0,0,29,szt.,SICK Sensors Model 476,9/1/2025
+P-0239,0,0,13,szt.,ABB Motors Model 115,9/1/2025
+P-0240,0,0,28,szt.,Uvex Safety glasses Model 206,9/1/2025
+P-0241,0,0,110,szt.,FAG Bearings 183,9/1/2025
+P-0242,0,0,39,szt.,3M Safety glasses Model 346,9/1/2025
+P-0243,0,0,53,szt.,SICK Sensors Model 802,9/1/2025
+P-0244,0,0,34,L,Mobil Oils 983L,9/1/2025
+P-0245,0,0,55,szt.,Xerox Toner Model 174,9/1/2025
+P-0246,0,0,24,op.,Navigator Paper Model 853,9/1/2025
+P-0247,0,0,75,L,Castrol Oils 668L,9/1/2025
+P-0248,0,0,240,L,Castrol Oils 808L,9/1/2025
+P-0249,0,0,142,szt.,Brother Toner Model 775,9/1/2025
+P-0250,0,0,110,szt.,Nowy Styl Office chairs 162,9/1/2025
+P-0251,0,0,20,para,Honeywell Gloves Model 191,9/1/2025
+P-0252,0,0,20,szt.,Ardon Workwear 822,9/1/2025
+P-0253,0,0,61,szt.,Pepperl+Fuchs Sensors 814,9/1/2025
+P-0254,0,0,30,szt.,Samsung Monitors Model 878,9/1/2025
+P-0255,0,0,118,szt.,LG Monitors 764,9/1/2025
+P-0256,0,0,25,szt.,Gates Engine parts 932,9/1/2025
+P-0257,0,0,99,szt.,Milwaukee Tools 173,9/1/2025
+P-0258,0,0,6,szt.,IKEA Office chairs 451,9/1/2025
+P-0259,0,0,74,szt.,3M Safety glasses 288,9/1/2025
+P-0260,0,0,178,L,Mobil Oils 304L,9/1/2025
+P-0261,0,0,1,szt.,Sachs Engine parts Model 290,9/1/2025
+P-0262,0,0,75,para,Honeywell Gloves Model 858,9/1/2025
+P-0263,0,0,102,licencja,Adobe Software 132,9/1/2025
+P-0264,0,0,94,szt.,Petzl Helmets Model 570,9/1/2025
+P-0265,0,0,40,szt.,REX Screws 462,9/1/2025
+P-0266,0,0,77,szt.,Profim Office chairs Model 400,9/1/2025
+P-0267,0,0,24,szt.,Mahle Filters Model 982,9/1/2025
+P-0268,0,0,64,szt.,Milwaukee Tools 314,9/1/2025
+P-0269,0,0,85,szt.,ABB Motors 671,9/1/2025
+P-0270,0,0,21,szt.,DeWalt Tools Model 795,9/1/2025
+P-0271,0,0,4,szt.,Honeywell Safety glasses Model 521,9/1/2025
+P-0272,0,0,34,szt.,Stabilo Pens Model 680,9/1/2025
+P-0273,0,0,165,L,Castrol Oils 122L,9/1/2025
+P-0274,0,0,203,L,Castrol Oils 486L,9/1/2025
+P-0275,0,0,60,szt.,Siemens Motors 640,9/1/2025
+P-0276,0,0,90,szt.,HP Toner 941,9/1/2025
+P-0277,0,0,15,szt.,3M Safety glasses Model 328,9/1/2025
+P-0278,0,0,13,szt.,Profim Office chairs Model 207,9/1/2025
+P-0279,0,0,14,para,Ansell Gloves Model 841,9/1/2025
+P-0280,0,0,17,szt.,SKF Bearings Model 346,9/1/2025
+P-0281,0,0,75,szt.,Bosch Tools 232,9/1/2025
+P-0282,0,0,128,szt.,3M Safety glasses 493,9/1/2025
+P-0283,0,0,70,szt.,3M Helmets Model 904,9/1/2025
+P-0284,0,0,2,szt.,Makita Tools 223,9/1/2025
+P-0285,0,0,28,szt.,Honeywell Safety glasses Model 260,9/1/2025
+P-0286,0,0,58,szt.,Dell Monitors 193,9/1/2025
+P-0287,0,0,29,szt.,Uvex Safety glasses Model 318,9/1/2025
+P-0288,0,0,63,szt.,Portwest Workwear 617,9/1/2025
+P-0289,0,0,10,szt.,Mahle Filters 723,9/1/2025
+P-0290,0,0,60,op.,Navigator Paper Model 857,9/1/2025
+P-0291,0,0,40,op.,Xerox Paper Model 916,9/1/2025
+P-0292,0,0,165,L,Total Oils 688L,9/1/2025
+P-0293,0,0,39,szt.,Brother Printers 701,9/1/2025
+P-0294,0,0,38,szt.,Dell Monitors 345,9/1/2025
+P-0295,0,0,7,szt.,NTN Bearings 237,9/1/2025
+P-0296,0,0,111,szt.,Profim Office chairs Model 562,9/1/2025
+P-0297,0,0,23,szt.,Uvex Safety glasses 432,9/1/2025
+P-0298,0,0,66,op.,Navigator Paper Model 775,9/1/2025
+P-0299,0,0,66,szt.,Helly Hansen Workwear Model 122,9/1/2025
+P-0300,0,0,39,szt.,ABB Motors Model 154,9/1/2025
+P-0301,0,0,80,szt.,Mann Filters 123,9/1/2025
+P-0302,0,0,26,szt.,Mahle Filters Model 686,9/1/2025
+P-0303,0,0,11,szt.,Stabilo Pens 561,9/1/2025
+P-0304,0,0,56,szt.,Bosch Filters 223,9/1/2025
+P-0305,0,0,21,szt.,Canon Printers 859,9/1/2025
+P-0306,0,0,15,szt.,Xerox Toner 349,9/1/2025
+P-0307,0,0,34,szt.,Brother Printers 638,9/1/2025
+P-0308,0,0,10,szt.,IKEA Office chairs 279,9/1/2025
+P-0309,0,0,80,szt.,Stabilo Pens 806,9/1/2025
+P-0310,0,0,29,licencja,Microsoft Software 380,9/1/2025
+P-0311,0,0,64,szt.,Brother Printers Model 576,9/1/2025
+P-0312,0,0,13,szt.,Mann Filters 672,9/1/2025
+P-0313,0,0,51,szt.,Brother Toner Model 723,9/1/2025
+P-0314,0,0,124,szt.,Bosch Engine parts Model 283,9/1/2025
+P-0315,0,0,5,szt.,Nowy Styl Office chairs Model 266,9/1/2025
+P-0316,0,0,51,szt.,BIC Pens 221,9/1/2025
+P-0317,0,0,48,szt.,NTN Bearings 224,9/1/2025
+P-0318,0,0,33,licencja,Microsoft Software Model 749,9/1/2025
+P-0319,0,0,83,szt.,Dell Monitors Model 855,9/1/2025
+P-0320,0,0,62,szt.,Portwest Workwear Model 102,9/1/2025
+P-0321,0,0,12,szt.,HP Printers Model 161,9/1/2025
+P-0322,0,0,262,L,Castrol Oils 744L,9/1/2025
+P-0323,0,0,14,szt.,SKF Bearings Model 701,9/1/2025
+P-0324,0,0,12,szt.,Brother Toner Model 570,9/1/2025
+P-0325,0,0,14,szt.,3M Safety glasses Model 497,9/1/2025
+P-0326,0,0,87,szt.,Uvex Safety glasses 394,9/1/2025
+P-0327,0,0,34,szt.,WEG Motors Model 109,9/1/2025
+P-0328,0,0,14,szt.,Pepperl+Fuchs Sensors 724,9/1/2025
+P-0329,0,0,100,szt.,Dell Laptops 765,9/1/2025
+P-0330,0,0,49,szt.,LG Monitors 537,9/1/2025
+P-0331,0,0,49,szt.,Dell Monitors Model 171,9/1/2025
+P-0332,0,0,65,szt.,Xerox Toner 389,9/1/2025
+P-0333,0,0,101,szt.,Siemens Sensors 799,9/1/2025
+P-0334,0,0,70,szt.,Petzl Helmets Model 772,9/1/2025
+P-0335,0,0,74,szt.,Helly Hansen Workwear Model 939,9/1/2025
+P-0336,0,0,131,szt.,REX Screws 294,9/1/2025
+P-0337,0,0,44,szt.,Gates Engine parts Model 645,9/1/2025
+P-0338,0,0,50,szt.,Dell Monitors Model 106,9/1/2025
+P-0339,0,0,132,szt.,ABB Motors 501,9/1/2025
+P-0340,0,0,18,szt.,HP Toner Model 839,9/1/2025
+P-0341,0,0,43,szt.,Profim Office chairs Model 501,9/1/2025
+P-0342,0,0,34,szt.,Bosch Filters 532,9/1/2025
+P-0343,0,0,17,szt.,3M Helmets 439,9/1/2025
+P-0344,0,0,99,szt.,Mahle Filters Model 459,9/1/2025
+P-0345,0,0,84,szt.,Dell Monitors Model 325,9/1/2025
+P-0346,0,0,56,szt.,Bosch Filters Model 779,9/1/2025
+P-0347,0,0,80,szt.,Pepperl+Fuchs Sensors Model 474,9/1/2025
+P-0348,0,0,63,szt.,Helly Hansen Workwear Model 871,9/1/2025
+P-0349,0,0,1,op.,Xerox Paper Model 308,9/1/2025
+P-0350,0,0,88,szt.,Pepperl+Fuchs Sensors 215,9/1/2025
