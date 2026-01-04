@@ -21,10 +21,7 @@ class Product(Base):
     current_stock = Column(Float, default=0.0)
     min_stock_level = Column(Float, default=10.0)
     lead_time_days = Column(Integer, default=7)
-    
-    # NOWOŚĆ: AI uczy się tego parametru (ile schodzi dziennie)
     average_daily_consumption = Column(Float, default=1.0)
-    
     contracts = relationship("Contract", back_populates="product")
 
 class Contract(Base):
@@ -38,6 +35,10 @@ class Contract(Base):
     is_active = Column(Boolean, default=True)
     penalty_clause_details = Column(Text, nullable=True)
     termination_period_days = Column(Integer, default=30)
+    
+    # NOWOŚĆ: Warunki płatności w kontrakcie (np. 30 dni)
+    payment_terms_days = Column(Integer, default=30)
+
     supplier = relationship("Supplier", back_populates="contracts")
     product = relationship("Product", back_populates="contracts")
 
@@ -52,10 +53,14 @@ class Order(Base):
     order_type = Column(String)
     created_at = Column(DateTime, default=datetime.now)
     estimated_delivery = Column(DateTime)
+    
+    # NOWOŚĆ: Kiedy trzeba zapłacić?
+    payment_terms_days = Column(Integer, default=0) # 0 = płatność natychmiastowa
+    payment_due_date = Column(DateTime)             # Wyliczona data płatności
+
     supplier = relationship("Supplier", back_populates="orders")
     product = relationship("Product")
 
-# Do wykresów
 class DailyStats(Base):
     __tablename__ = "daily_stats"
     id = Column(Integer, primary_key=True, index=True)
