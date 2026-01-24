@@ -226,10 +226,18 @@ function App() {
 
   // --- AKCJE UŻYTKOWNIKA ---
 
+  // *** TO JEST FUNKCJA KTÓRA NAPRAWIA BŁĄD ***
   const toggleSimulation = async () => {
-    const endpoint = simulationStatus?.is_running ? '/simulation/stop' : '/simulation/start'
-    await axios.post(`${API_URL}${endpoint}`)
-    fetchSimulationStatus()
+    try {
+        const response = await axios.post(`${API_URL}/simulation/toggle`)
+        // Natychmiastowa aktualizacja stanu UI na podstawie odpowiedzi serwera
+        setSimulationStatus(prev => ({
+            ...prev,
+            is_running: response.data.status === 'running'
+        }))
+    } catch (error) {
+        alert("Błąd połączenia z backendem: " + error.message)
+    }
   }
   
   const handleOrder = async (item) => {
