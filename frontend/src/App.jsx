@@ -10,7 +10,6 @@ import {
     Upload, 
     CheckCircle, 
     Clock, 
-    Truck, 
     CheckSquare, 
     ShieldCheck,
     Boxes, 
@@ -18,7 +17,6 @@ import {
     BarChart3, 
     TrendingUp, 
     CalendarRange, 
-    Zap, 
     UserCircle, 
     Download, 
     XCircle, 
@@ -33,7 +31,10 @@ import {
     MessageSquare, 
     Send, 
     Settings, 
-    Activity 
+    Activity,
+    Terminal, // Zachowany import
+    Shield,
+    DollarSign
 } from 'lucide-react'
 import { 
     AreaChart, 
@@ -53,17 +54,25 @@ import {
 
 function App() {
   // --- STANY APLIKACJI ---
-  const [activeTab, setActiveTab] = useState('market') // 'market' | 'inventory' | 'contracts' | 'orders' | 'analytics' | 'forecast' | 'scenarios'
-  const [userRole, setUserRole] = useState('employee') // 'employee' | 'manager'
+  const [activeTab, setActiveTab] = useState('market')
+  const [userRole, setUserRole] = useState('employee')
   
   // Dane biznesowe
   const [products, setProducts] = useState([])
   const [orders, setOrders] = useState([])
   const [history, setHistory] = useState([]) 
   const [predictions, setPredictions] = useState([]) 
-  const [finance, setFinance] = useState(null)
-  const [scenarios, setScenarios] = useState([]) // Dane do wykresu What-If
-  const [simulationStatus, setSimulationStatus] = useState(null)
+  
+  // NOWE DANE ANALITYCZNE (Zamiast starego finance)
+  const [analyticsData, setAnalyticsData] = useState(null)
+  
+  const [scenarios, setScenarios] = useState([]) 
+  // Stan symulacji
+  const [simulationStatus, setSimulationStatus] = useState({ 
+      date: "Loading...", 
+      is_running: false, 
+      events: [] 
+  })
   
   // Parametry symulacji What-If
   const [delayDays, setDelayDays] = useState(0)
@@ -108,21 +117,19 @@ function App() {
             fetchProducts()
         }
         if (activeTab === 'analytics') { 
+            fetchAnalyticsDashboard() // NOWA FUNKCJA
             fetchHistory()
-            fetchPredictions()
-            fetchFinance()
         }
         if (activeTab === 'forecast') { 
             fetchPredictions()
-            // Odświeżamy produkty raz na jakiś czas, żeby mieć Lead Time
             if (products.length === 0) fetchProducts()
         }
-    }, 1000)
+    }, 2000) // Zwiększyłem interwał do 2s dla płynności
     
     return () => clearInterval(interval)
   }, [activeTab])
 
-  // Odświeżanie scenariusza What-If przy zmianie suwaków
+  // Odświeżanie scenariusza What-If
   useEffect(() => {
       if (activeTab === 'scenarios') {
           fetchScenarios()
@@ -134,10 +141,9 @@ function App() {
       chatEndRef.current?.scrollIntoView({ behavior: "smooth" })
   }, [chatMessages])
 
-  // --- FUNKCJE API (Pełne wersje) ---
+  // --- FUNKCJE API ---
 
   const fetchProducts = async (query = "") => {
-    // Nie blokujemy UI spinnerem, jeśli tylko odświeżamy dane w tle
     if (!['inventory', 'orders', 'analytics', 'forecast', 'scenarios'].includes(activeTab)) {
         setLoading(true)
     }
@@ -179,11 +185,12 @@ function App() {
       } catch (error) { console.error(error) }
   }
 
-  const fetchFinance = async () => {
+  // NOWA FUNKCJA DO DASHBOARDU
+  const fetchAnalyticsDashboard = async () => {
       try {
-          const response = await axios.get(`${API_URL}/analytics/finance`)
-          setFinance(response.data)
-      } catch (error) { console.error(error) }
+          const response = await axios.get(`${API_URL}/analytics/dashboard`)
+          setAnalyticsData(response.data)
+      } catch (error) { console.error("Błąd dashboardu:", error) }
   }
 
   const fetchScenarios = async () => {
@@ -207,7 +214,6 @@ function App() {
       if (!chatInput.trim()) return
 
       const userMsg = chatInput
-      // Dodaj wiadomość użytkownika lokalnie
       setChatMessages(prev => [...prev, { from: 'user', text: userMsg }])
       setChatInput("")
       
@@ -215,7 +221,6 @@ function App() {
           const response = await axios.post(`${API_URL}/assistant/chat`, { message: userMsg })
           setChatMessages(prev => [...prev, { from: 'bot', text: response.data.text }])
           
-          // Obsługa akcji specjalnych (np. pobranie raportu z czatu)
           if (response.data.action === 'download_report') {
               downloadReport()
           }
@@ -226,11 +231,9 @@ function App() {
 
   // --- AKCJE UŻYTKOWNIKA ---
 
-  // *** TO JEST FUNKCJA KTÓRA NAPRAWIA BŁĄD ***
   const toggleSimulation = async () => {
     try {
         const response = await axios.post(`${API_URL}/simulation/toggle`)
-        // Natychmiastowa aktualizacja stanu UI na podstawie odpowiedzi serwera
         setSimulationStatus(prev => ({
             ...prev,
             is_running: response.data.status === 'running'
@@ -244,7 +247,6 @@ function App() {
     let pid = item.id
     let name = item.name || item.product_name
 
-    // Zabezpieczenie: jeśli nie mamy ID, szukamy po nazwie
     if (!pid) {
         const p = products.find(x => x.name === name)
         if (p) pid = p.id
@@ -257,6 +259,7 @@ function App() {
     try {
       await axios.post(`${API_URL}/orders`, {
         product_id: pid,
+        supplier_id: 1, // Mock supplier
         quantity: parseFloat(qty),
         order_type: "standard"
       })
@@ -289,13 +292,11 @@ function App() {
     }
   }
 
-  // --- WORKFLOW AKCEPTACJI ---
-
   const handleApprove = async (orderId) => {
       try { 
           await axios.put(`${API_URL}/orders/${orderId}/approve`)
           fetchOrders()
-          setSelectedOrder(null) // Zamknij modal po akcji
+          setSelectedOrder(null)
       } catch(e) { alert(e.message) }
   }
 
@@ -307,8 +308,6 @@ function App() {
       } catch(e) { alert(e.message) }
   }
 
-  // --- RAPORTY ---
-
   const downloadReport = () => {
       window.open(`${API_URL}/analytics/report/pdf`, '_blank')
   }
@@ -316,8 +315,6 @@ function App() {
   const downloadOrderPDF = (id) => {
       window.open(`${API_URL}/orders/${id}/pdf`, '_blank')
   }
-
-  // --- SMART WALLET ---
 
   const handleFileChange = (e) => {
       setSelectedFile(e.target.files[0])
@@ -358,8 +355,6 @@ function App() {
     fetchProducts(searchQuery)
   }
 
-  // --- HELPERS ---
-
   const inventoryProducts = showLowStockOnly 
     ? products.filter(p => p.current_stock <= p.min_stock_level)
     : products
@@ -376,7 +371,7 @@ function App() {
   return (
     <div className="app-layout">
       
-      {/* --- SIDEBAR (LEWE MENU) --- */}
+      {/* --- SIDEBAR --- */}
       <div className="sidebar">
         <div className="logo-section">
             <Package size={28} color="#4f46e5" />
@@ -403,7 +398,7 @@ function App() {
             <button className={`nav-btn ${activeTab === 'orders' ? 'active' : ''}`} onClick={() => {setActiveTab('orders'); fetchOrders();}}>
                 <Clock size={20}/> Centrum Operacyjne
             </button>
-            <button className={`nav-btn ${activeTab === 'analytics' ? 'active' : ''}`} onClick={() => {setActiveTab('analytics'); fetchHistory();}}>
+            <button className={`nav-btn ${activeTab === 'analytics' ? 'active' : ''}`} onClick={() => {setActiveTab('analytics'); fetchAnalyticsDashboard(); fetchHistory();}}>
                 <BarChart3 size={20}/> Raporty & BI
             </button>
             <button className={`nav-btn ${activeTab === 'scenarios' ? 'active' : ''}`} onClick={() => setActiveTab('scenarios')} style={{color:'#7c3aed'}}>
@@ -411,7 +406,6 @@ function App() {
             </button>
         </div>
 
-        {/* PROFIL UŻYTKOWNIKA */}
         <div style={{borderTop:'1px solid #e2e8f0', paddingTop:'20px'}}>
             <div style={{display:'flex', alignItems:'center', gap:'10px', marginBottom:'15px'}}>
                 <div style={{width:'36px', height:'36px', borderRadius:'50%', background:'#e0e7ff', display:'flex', alignItems:'center', justifyContent:'center'}}>
@@ -434,7 +428,7 @@ function App() {
         </div>
       </div>
 
-      {/* --- GŁÓWNA TREŚĆ (CONTENT) --- */}
+      {/* --- CONTENT --- */}
       <div className="main-content">
         
         {/* Header */}
@@ -446,13 +440,12 @@ function App() {
                     {activeTab === 'forecast' && 'Planowanie Zapotrzebowania (AI)'}
                     {activeTab === 'contracts' && 'Cyfrowe Umowy'}
                     {activeTab === 'orders' && 'Centrum Operacyjne'}
-                    {activeTab === 'analytics' && 'Business Intelligence'}
+                    {activeTab === 'analytics' && 'Centrum Analityczne AI'}
                     {activeTab === 'scenarios' && 'Symulacje Strategiczne (What-If)'}
                 </h2>
                 <p style={{margin:'4px 0 0 0', color:'#64748b', fontSize:'0.9rem'}}>Panel zarządzania procesami zakupowymi</p>
             </div>
 
-            {/* Panel Sterowania Symulacją */}
             <div className="card" style={{padding:'8px 16px', display:'flex', alignItems:'center', gap:'20px', borderRadius:'30px', border:'1px solid #e2e8f0', boxShadow:'none'}}>
                 <div style={{textAlign:'right'}}>
                     <div style={{fontSize:'0.7rem', fontWeight:'700', color:'#94a3b8', letterSpacing:'0.5px'}}>DATA SYSTEMOWA</div>
@@ -476,7 +469,7 @@ function App() {
             </div>
         </div>
 
-        {/* --- SCENARIUSZE WHAT-IF --- */}
+        {/* --- SCENARIOS --- */}
         {activeTab === 'scenarios' && (
             <div>
                 <div style={{display:'flex', gap:'20px', marginBottom:'20px'}}>
@@ -513,7 +506,7 @@ function App() {
             </div>
         )}
 
-        {/* --- CHAT WIDGET --- */}
+        {/* --- CHAT --- */}
         <div style={{position:'fixed', bottom:'20px', right:'20px', zIndex:2000}}>
             {!isChatOpen && (
                 <button onClick={()=>setIsChatOpen(true)} style={{width:'60px', height:'60px', borderRadius:'50%', background:'#4f46e5', color:'white', border:'none', boxShadow:'0 4px 12px rgba(79, 70, 229, 0.4)', cursor:'pointer', display:'flex', justifyContent:'center', alignItems:'center'}}>
@@ -542,7 +535,7 @@ function App() {
             )}
         </div>
 
-        {/* --- MODAL SZCZEGÓŁÓW ZAMÓWIENIA --- */}
+        {/* --- MODAL --- */}
         {selectedOrder && (
             <div style={{
                 position: 'fixed', top: 0, left: 0, width: '100%', height: '100%', 
@@ -632,7 +625,7 @@ function App() {
             </div>
         )}
 
-        {/* --- TAB: MARKET --- */}
+        {/* --- MARKET --- */}
         {activeTab === 'market' && (
             <>
                 <div className="card" style={{ marginBottom: '30px', background: 'white', padding: '20px', borderRadius: '8px', boxShadow: '0 1px 3px rgba(0,0,0,0.1)' }}>
@@ -716,7 +709,7 @@ function App() {
             </>
         )}
 
-        {/* --- TAB 2: INVENTORY --- */}
+        {/* --- INVENTORY --- */}
         {activeTab === 'inventory' && (
             <div className="card" style={{padding:0, overflow:'hidden'}}>
                 <div style={{padding:'16px', borderBottom:'1px solid #e2e8f0', display:'flex', justifyContent:'space-between'}}>
@@ -752,7 +745,7 @@ function App() {
             </div>
         )}
 
-        {/* --- TAB 3: FORECAST (MRP) --- */}
+        {/* --- FORECAST --- */}
         {activeTab === 'forecast' && (
             <div className="card" style={{padding:0, overflow:'hidden'}}>
                 <div style={{padding:'24px', borderBottom:'1px solid #e2e8f0', background:'#f8fafc'}}>
@@ -804,7 +797,7 @@ function App() {
             </div>
         )}
 
-        {/* --- TAB 4: CONTRACTS --- */}
+        {/* --- CONTRACTS --- */}
         {activeTab === 'contracts' && (
             <div style={{display:'flex', gap:'40px', alignItems:'flex-start'}}>
                 <div className="card" style={{flex:1, textAlign:'center', padding:'40px'}}>
@@ -843,90 +836,184 @@ function App() {
             </div>
         )}
 
-        {/* --- TAB 5: ORDERS --- */}
+        {/* --- ORDERS (Z NOWYM PANELEM LOGÓW!) --- */}
         {activeTab === 'orders' && (
-            <div className="card" style={{padding:0, overflow:'hidden'}}>
-                <div style={{padding:'20px', borderBottom:'1px solid #e2e8f0', display:'flex', justifyContent:'space-between', alignItems:'center'}}>
-                    <h3>Centrum Operacyjne</h3>
-                    <button onClick={fetchOrders} style={{background:'transparent', border:'none', cursor:'pointer'}}><RefreshCw size={20}/></button>
+            <div style={{display:'grid', gridTemplateColumns:'2fr 1fr', gap:'20px', alignItems:'start'}}>
+                <div className="card" style={{padding:0, overflow:'hidden'}}>
+                    <div style={{padding:'20px', borderBottom:'1px solid #e2e8f0', display:'flex', justifyContent:'space-between', alignItems:'center'}}>
+                        <h3>Wszystkie Zamówienia</h3>
+                        <button onClick={fetchOrders} style={{background:'transparent', border:'none', cursor:'pointer'}}><RefreshCw size={20}/></button>
+                    </div>
+                    <table>
+                        <thead>
+                            <tr><th style={{paddingLeft:'20px'}}>ID</th><th>Produkt</th><th>Wartość</th><th>Status</th><th style={{textAlign:'right', paddingRight:'20px'}}>Szczegóły</th></tr>
+                        </thead>
+                        <tbody>
+                            {orders.map(o => (
+                                <tr key={o.id} onClick={() => setSelectedOrder(o)} style={{cursor:'pointer', borderBottom:'1px solid #f1f5f9', background: o.status === 'pending_approval' ? '#fff7ed' : 'white'}}>
+                                    <td style={{padding:'16px 20px', fontFamily:'monospace', fontWeight:'600'}}>
+                                        {o.id} {o.id.startsWith('AUTO') && <span style={{fontSize:'0.7rem', color:'#3b82f6'}}>🤖 BOT</span>}
+                                    </td>
+                                    <td>{o.product?.name}</td>
+                                    <td>{o.total_price.toFixed(2)} PLN</td>
+                                    <td>
+                                        {o.status === 'pending_approval' && <span className="status-badge" style={{background:'#ffedd5', color:'#c2410c'}}>⏳ Akceptacja</span>}
+                                        {o.status === 'ordered' && <span className="status-badge" style={{background:'#e0f2fe', color:'#0369a1'}}>📦 Złożono</span>}
+                                        {o.status === 'delivered' && <span className="status-badge" style={{background:'#dcfce7', color:'#15803d'}}>✅ Dostarczono</span>}
+                                        {o.status === 'cancelled' && <span className="status-badge" style={{background:'#fee2e2', color:'#b91c1c'}}>❌ Odrzucono</span>}
+                                    </td>
+                                    <td style={{textAlign:'right', paddingRight:'20px'}}>
+                                        <Info size={18} color="#94a3b8"/>
+                                    </td>
+                                </tr>
+                            ))}
+                        </tbody>
+                    </table>
                 </div>
-                <table>
-                    <thead>
-                        <tr><th style={{paddingLeft:'20px'}}>ID</th><th>Produkt</th><th>Wartość</th><th>Status</th><th style={{textAlign:'right', paddingRight:'20px'}}>Szczegóły</th></tr>
-                    </thead>
-                    <tbody>
-                        {orders.map(o => (
-                            <tr key={o.id} onClick={() => setSelectedOrder(o)} style={{cursor:'pointer', borderBottom:'1px solid #f1f5f9', background: o.status === 'pending_approval' ? '#fff7ed' : 'white'}}>
-                                <td style={{padding:'16px 20px', fontFamily:'monospace', fontWeight:'600'}}>
-                                    {o.id} {o.id.startsWith('AUTO') && <span style={{fontSize:'0.7rem', color:'#3b82f6'}}>🤖 BOT</span>}
-                                </td>
-                                <td>{o.product?.name}</td>
-                                <td>{o.total_price.toFixed(2)} PLN</td>
-                                <td>
-                                    {o.status === 'pending_approval' && <span className="status-badge" style={{background:'#ffedd5', color:'#c2410c'}}>⏳ Akceptacja</span>}
-                                    {o.status === 'ordered' && <span className="status-badge" style={{background:'#e0f2fe', color:'#0369a1'}}>📦 Złożono</span>}
-                                    {o.status === 'delivered' && <span className="status-badge" style={{background:'#dcfce7', color:'#15803d'}}>✅ Dostarczono</span>}
-                                    {o.status === 'cancelled' && <span className="status-badge" style={{background:'#fee2e2', color:'#b91c1c'}}>❌ Odrzucono</span>}
-                                </td>
-                                <td style={{textAlign:'right', paddingRight:'20px'}}>
-                                    <Info size={18} color="#94a3b8"/>
-                                </td>
-                            </tr>
-                        ))}
-                    </tbody>
-                </table>
+
+                {/* --- LIVE EVENT FEED (NOWOŚĆ) --- */}
+                <div className="card" style={{padding:'0', maxHeight:'600px', display:'flex', flexDirection:'column', background:'#1e293b', color:'white', border:'none'}}>
+                    <div style={{padding:'15px', borderBottom:'1px solid #334155', display:'flex', alignItems:'center', gap:'10px'}}>
+                        <Terminal size={20} color="#4ade80"/>
+                        <h3 style={{margin:0, color:'white', fontSize:'1rem'}}>Dziennik Zdarzeń (Live)</h3>
+                    </div>
+                    <div style={{padding:'15px', overflowY:'auto', flex:1, fontFamily:'monospace', fontSize:'0.85rem'}}>
+                        {simulationStatus?.events && simulationStatus.events.length > 0 ? (
+                            simulationStatus.events.map((ev) => (
+                                <div key={ev.id} style={{marginBottom:'10px', paddingBottom:'10px', borderBottom:'1px dashed #334155'}}>
+                                    <div style={{color:'#94a3b8', fontSize:'0.75rem', marginBottom:'2px'}}>[{ev.date}]</div>
+                                    <div style={{display:'flex', gap:'8px', alignItems:'start'}}>
+                                        <span>{ev.icon}</span>
+                                        <span style={{color: ev.type === 'warning' ? '#fca5a5' : ev.type === 'error' ? '#ef4444' : '#e2e8f0'}}>
+                                            {ev.message}
+                                        </span>
+                                    </div>
+                                </div>
+                            ))
+                        ) : (
+                            <div style={{color:'#64748b', textAlign:'center', marginTop:'20px'}}>Oczekiwanie na zdarzenia...<br/>(Włącz symulację)</div>
+                        )}
+                    </div>
+                </div>
             </div>
         )}
 
-        {/* --- TAB 6: ANALYTICS --- */}
+       
         {activeTab === 'analytics' && (
             <div>
                 <div style={{display:'flex', justifyContent:'space-between', alignItems:'center', marginBottom:'30px'}}>
-                    <h3>Business Intelligence</h3>
+                    <h3>Centrum Analityczne AI</h3>
                     <button onClick={downloadReport} className="primary-btn" style={{display:'flex', alignItems:'center', gap:'8px'}}><Download size={18}/> Eksportuj PDF</button>
                 </div>
                 
-                {/* SEKCJĄ FINANSOWA */}
-                <div style={{display:'flex', gap:'20px', marginBottom:'20px'}}>
-                    <div className="card" style={{flex:1, background: 'linear-gradient(135deg, #4f46e5 0%, #3b82f6 100%)', color:'white', border:'none'}}>
-                        <div style={{display:'flex', alignItems:'center', gap:'10px', marginBottom:'10px'}}>
-                            <Wallet size={24} color="white"/>
-                            <h3 style={{margin:0, color:'white'}}>Budżet Miesięczny</h3>
-                        </div>
-                        <div style={{fontSize:'2rem', fontWeight:'bold'}}>{finance ? finance.budget_remaining.toLocaleString() : '...'} PLN</div>
-                        <div style={{fontSize:'0.9rem', opacity:0.8}}>Pozostało z {finance?.budget_limit.toLocaleString()} PLN</div>
-                        <div style={{background:'rgba(255,255,255,0.3)', height:'6px', borderRadius:'3px', marginTop:'15px', overflow:'hidden'}}>
-                            <div style={{width:`${finance ? (finance.budget_spent/finance.budget_limit)*100 : 0}%`, background:'white', height:'100%'}}></div>
-                        </div>
-                    </div>
-                    
-                    <div className="card" style={{flex:2}}>
-                        <h3 style={{marginTop:0}}>Prognoza Płatności (Cash Flow)</h3>
-                        <ResponsiveContainer width="100%" height={150}>
-                            <BarChart data={finance?.cash_flow || []} layout="vertical">
-                                <XAxis type="number" hide/>
-                                <YAxis dataKey="period" type="category" width={80} style={{fontSize:'0.8rem'}}/>
-                                <Tooltip formatter={(val)=>`${val} PLN`}/>
-                                <Bar dataKey="amount" fill="#10b981" barSize={20} radius={[0,4,4,0]}>
-                                    {finance?.cash_flow.map((entry, index) => (
-                                        <Cell key={`cell-${index}`} fill={index === 0 ? '#ef4444' : index === 1 ? '#f59e0b' : '#10b981'} />
-                                    ))}
-                                </Bar>
-                            </BarChart>
-                        </ResponsiveContainer>
-                    </div>
-                </div>
+                {!analyticsData ? (
+                    <div style={{textAlign:'center', padding:'40px', color:'#94a3b8'}}>Ładowanie danych BI...</div>
+                ) : (
+                    <>
+                        {/* KPI CARDS */}
+                        <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mb-8">
+                            <div className="card" style={{borderLeft:'4px solid #10b981'}}>
+                                <div style={{display:'flex', justifyContent:'space-between', alignItems:'start'}}>
+                                    <div>
+                                        <p style={{fontSize:'0.85rem', color:'#64748b', fontWeight:'600'}}>Zrealizowane Wydatki</p>
+                                        <p style={{fontSize:'1.8rem', fontWeight:'bold', margin:'5px 0'}}>
+                                            {analyticsData.security.approved_value.toLocaleString()} PLN
+                                        </p>
+                                    </div>
+                                    <div style={{background:'#dcfce7', padding:'8px', borderRadius:'8px'}}>
+                                        <DollarSign size={24} color="#15803d"/>
+                                    </div>
+                                </div>
+                            </div>
 
-                <div className="grid">
-                    <div className="card" style={{height:'400px'}}>
-                        <h4 style={{marginTop:0}}>Dynamika Zapasów</h4>
-                        <ResponsiveContainer><AreaChart data={history}><defs><linearGradient id="colorTotal" x1="0" y1="0" x2="0" y2="1"><stop offset="5%" stopColor="#4f46e5" stopOpacity={0.8}/><stop offset="95%" stopColor="#4f46e5" stopOpacity={0}/></linearGradient></defs><CartesianGrid strokeDasharray="3 3" vertical={false}/><XAxis dataKey="shortDate" fontSize={12}/><YAxis fontSize={12}/><Tooltip/><Area type="monotone" dataKey="total_items" stroke="#4f46e5" fillOpacity={1} fill="url(#colorTotal)"/></AreaChart></ResponsiveContainer>
-                    </div>
-                    <div className="card" style={{height:'400px'}}>
-                        <h4 style={{marginTop:0}}>Ryzyko vs Reakcja</h4>
-                        <ResponsiveContainer><ComposedChart data={history}><CartesianGrid strokeDasharray="3 3" vertical={false}/><XAxis dataKey="shortDate" fontSize={12}/><YAxis fontSize={12}/><Tooltip/><Legend/><Bar dataKey="low_stock_count" name="Krytyczne" fill="#f43f5e" barSize={20} /><Line type="monotone" dataKey="pending_orders" name="Zamówienia" stroke="#10b981" strokeWidth={3} dot={false}/></ComposedChart></ResponsiveContainer>
-                    </div>
-                </div>
+                            <div className="card" style={{borderLeft:'4px solid #ef4444'}}>
+                                <div style={{display:'flex', justifyContent:'space-between', alignItems:'start'}}>
+                                    <div>
+                                        <p style={{fontSize:'0.85rem', color:'#64748b', fontWeight:'600'}}>Oszczędność (Cost Avoidance)</p>
+                                        <p style={{fontSize:'1.8rem', fontWeight:'bold', margin:'5px 0', color:'#dc2626'}}>
+                                            {analyticsData.security.blocked_value.toLocaleString()} PLN
+                                        </p>
+                                        <p style={{fontSize:'0.75rem', color:'#ef4444'}}>
+                                            AI zablokowało {analyticsData.security.fraud_rate}% transakcji
+                                        </p>
+                                    </div>
+                                    <div style={{background:'#fee2e2', padding:'8px', borderRadius:'8px'}}>
+                                        <Shield size={24} color="#b91c1c"/>
+                                    </div>
+                                </div>
+                            </div>
+
+                            <div className="card" style={{borderLeft:'4px solid #3b82f6'}}>
+                                <div style={{display:'flex', justifyContent:'space-between', alignItems:'start'}}>
+                                    <div>
+                                        <p style={{fontSize:'0.85rem', color:'#64748b', fontWeight:'600'}}>Wartość Magazynu</p>
+                                        <p style={{fontSize:'1.8rem', fontWeight:'bold', margin:'5px 0'}}>
+                                            {analyticsData.inventory.reduce((acc, curr) => acc + curr.value, 0).toLocaleString()} PLN
+                                        </p>
+                                    </div>
+                                    <div style={{background:'#dbeafe', padding:'8px', borderRadius:'8px'}}>
+                                        <TrendingUp size={24} color="#1d4ed8"/>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+
+                        <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+                            {/* Wykres Bezpieczeństwa */}
+                            <div className="card" style={{height:'400px'}}>
+                                <h4 style={{marginTop:0}}>Skuteczność AI Auditora (Isolation Forest)</h4>
+                                <ResponsiveContainer width="100%" height="100%">
+                                    <BarChart data={[
+                                        { name: 'Zatwierdzone', value: analyticsData.security.approved_value, fill: '#10B981' },
+                                        { name: 'Zablokowane', value: analyticsData.security.blocked_value, fill: '#EF4444' }
+                                    ]}>
+                                        <CartesianGrid strokeDasharray="3 3" vertical={false} />
+                                        <XAxis dataKey="name" />
+                                        <YAxis />
+                                        <Tooltip formatter={(value) => `${value.toLocaleString()} PLN`} />
+                                        <Bar dataKey="value" radius={[4, 4, 0, 0]} barSize={60} />
+                                    </BarChart>
+                                </ResponsiveContainer>
+                            </div>
+
+                            {/* Wykres Magazynu */}
+                            <div className="card" style={{height:'400px'}}>
+                                <h4 style={{marginTop:0}}>Top Produkty Zamrażające Kapitał</h4>
+                                <ResponsiveContainer width="100%" height="100%">
+                                    <BarChart layout="vertical" data={analyticsData.inventory} margin={{ left: 20 }}>
+                                        <CartesianGrid strokeDasharray="3 3" horizontal={false} />
+                                        <XAxis type="number" hide />
+                                        <YAxis dataKey="name" type="category" width={100} style={{ fontSize: '11px' }} />
+                                        <Tooltip formatter={(value) => `${value.toLocaleString()} PLN`} />
+                                        <Bar dataKey="value" fill="#3B82F6" radius={[0, 4, 4, 0]} barSize={20} />
+                                    </BarChart>
+                                </ResponsiveContainer>
+                            </div>
+                        </div>
+
+                        {/* Stare wykresy historyczne */}
+                        <div className="grid grid-cols-1 gap-6 mt-6">
+                            <div className="card" style={{height:'350px'}}>
+                                <h4 style={{marginTop:0}}>Dynamika Zapasów (Historyczna)</h4>
+                                <ResponsiveContainer>
+                                    <AreaChart data={history}>
+                                        <defs>
+                                            <linearGradient id="colorTotal" x1="0" y1="0" x2="0" y2="1">
+                                                <stop offset="5%" stopColor="#4f46e5" stopOpacity={0.8}/>
+                                                <stop offset="95%" stopColor="#4f46e5" stopOpacity={0}/>
+                                            </linearGradient>
+                                        </defs>
+                                        <CartesianGrid strokeDasharray="3 3" vertical={false}/>
+                                        <XAxis dataKey="shortDate" fontSize={12}/>
+                                        <YAxis fontSize={12}/>
+                                        <Tooltip/>
+                                        <Area type="monotone" dataKey="total_items" stroke="#4f46e5" fillOpacity={1} fill="url(#colorTotal)"/>
+                                    </AreaChart>
+                                </ResponsiveContainer>
+                            </div>
+                        </div>
+                    </>
+                )}
             </div>
         )}
 

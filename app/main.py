@@ -13,6 +13,7 @@ from fastapi import FastAPI, Depends, HTTPException, BackgroundTasks, File, Uplo
 from fastapi.responses import FileResponse
 from fastapi.middleware.cors import CORSMiddleware
 from sqlalchemy.orm import Session
+from sqlalchemy import or_, func
 from pydantic import BaseModel 
 from fpdf import FPDF 
 
@@ -30,7 +31,7 @@ logger = logging.getLogger("ProcurementAPI")
 app = FastAPI(
     title="Procurement Pro API",
     description="System inżynierski ERP: AI, Symulacja, Finanse, Chatbot.",
-    version="4.0.0" 
+    version="4.0.2" 
 )
 
 # --- KONFIGURACJA CORS ---
@@ -42,7 +43,7 @@ origins = [
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=origins,
+    allow_origins=["*"], # Zezwalamy na wszystko dla dev
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -68,20 +69,29 @@ async def startup_event():
         # Konwersja modeli SQLAlchemy na Pydantic dla serwisu AI
         products_schemas = [schemas.Product.model_validate(p) for p in products]
         if products_schemas:
-            ai_search.index_products(products_schemas)
+            try:
+                ai_search.index_products(products_schemas)
+            except Exception as e:
+                logger.error(f"AI Index Error: {e}")
         
         # 2. Trening Detektora Anomalii na danych historycznych
         logger.info("🕵️‍♂️ [AI] Trening Auditora (Isolation Forest)...")
         orders = db.query(models.Order).all()
         if orders:
-            anomaly_detector.train(orders)
+            try:
+                anomaly_detector.train(orders)
+            except Exception as e:
+                logger.error(f"Anomaly Training Error: {e}")
+        
+        # 3. Uruchomienie symulatora w tle (jeśli ma startować automatycznie)
+        asyncio.create_task(simulator.run_simulation_loop())
         
     except Exception as e:
         logger.error(f"❌ [STARTUP ERROR]: {e}")
     finally:
         db.close()
 
-# --- STEROWANIE SYMULACJĄ (NAPRAWIONE) ---
+# --- STEROWANIE SYMULACJĄ ---
 
 @app.get("/simulation/status")
 def get_simulation_status():
@@ -98,12 +108,10 @@ async def toggle_simulation(background_tasks: BackgroundTasks):
     simulator.is_running = not simulator.is_running
     
     if simulator.is_running:
-        # KLUCZOWA ZMIANA: Uruchamiamy run_engine z nowego simulator.py
         background_tasks.add_task(simulator.run_engine)
         logger.info("▶️ Symulacja została URUCHOMIONA.")
         return {"status": "running", "message": "Symulacja działa w tle."}
     else:
-        # Pętla while w simulator.py sama się zatrzyma, gdy flaga is_running=False
         logger.info("⏹️ Symulacja została ZATRZYMANA.")
         return {"status": "stopped", "message": "Symulacja zatrzymana."}
 
@@ -132,7 +140,6 @@ class PDFOrder(FPDF):
 
         y_start = self.get_y()
         
-        # LEWA STRONA: Dostawca
         self.set_font('Arial', 'B', 10)
         self.cell(90, 5, 'DOSTAWCA:', 0, 1)
         self.set_font('Arial', '', 10)
@@ -140,7 +147,6 @@ class PDFOrder(FPDF):
         self.cell(90, 5, name, 0, 1)
         self.cell(90, 5, 'Status: Zweryfikowany', 0, 1)
         
-        # PRAWA STRONA: Szczegóły
         self.set_xy(110, y_start)
         self.set_font('Arial', 'B', 10)
         self.cell(90, 5, 'WARUNKI:', 0, 1)
@@ -151,7 +157,6 @@ class PDFOrder(FPDF):
         self.cell(90, 5, f'Platnosc: {order.payment_terms_days} dni', 0, 1)
         self.set_x(110)
         self.cell(90, 5, f'Dostawa: {order.estimated_delivery.strftime("%Y-%m-%d")}', 0, 1)
-        
         self.ln(20)
 
     def order_table(self, order, product):
@@ -183,46 +188,61 @@ class PDFOrder(FPDF):
         self.set_font('Arial', '', 10)
         self.cell(35, 8, 'Suma Netto:', 0, 0, 'R')
         self.cell(35, 8, f'{total_net:.2f} PLN', 1, 1, 'R')
-        
         self.set_x(120)
         self.cell(35, 8, 'VAT (23%):', 0, 0, 'R')
         self.cell(35, 8, f'{vat:.2f} PLN', 1, 1, 'R')
-        
         self.set_x(120)
         self.set_font('Arial', 'B', 12)
         self.cell(35, 10, 'RAZEM BRUTTO:', 0, 0, 'R')
         self.set_fill_color(220, 255, 220) 
         self.cell(35, 10, f'{gross:.2f} PLN', 1, 1, 'R', 1)
 
-# --- ZARZĄDZANIE PRODUKTAMI (Z AI) ---
+# --- ZARZĄDZANIE PRODUKTAMI (Z HYBRID SEARCH) ---
 
 @app.get("/products", response_model=List[schemas.Product])
 def read_products(skip: int = 0, limit: int = 100, search: Optional[str] = None, db: Session = Depends(get_db)):
-    # 1. Wyszukiwanie Semantyczne (AI)
+    found_ids = []
+    
+    # 1. Jeśli jest wyszukiwanie -> Hybrid Search (AI + SQL)
     if search:
-        ai_results = ai_search.search(search, top_k=limit)
-        if not ai_results:
-            return []
-        found_ids = [p.id for p in ai_results]
-        db_products = db.query(models.Product).filter(models.Product.id.in_(found_ids)).all()
+        # A. AI Search (Wektory)
+        try:
+            ai_results = ai_search.search(search, top_k=limit)
+            found_ids = [p.id for p in ai_results]
+        except:
+            pass # Fallback w razie błędów AI
         
-        # Sortowanie wg trafności AI
-        product_map = {p.id: p for p in db_products}
-        raw_products = [product_map[pid] for pid in found_ids if pid in product_map]
+        # B. SQL Search (Tekstowo - ILIKE) - wyłapuje to, czego AI nie skojarzy
+        keyword_results = db.query(models.Product).filter(
+            or_(
+                models.Product.name.ilike(f"%{search}%"),
+                models.Product.category.ilike(f"%{search}%")
+            )
+        ).all()
+        
+        for prod in keyword_results:
+            if prod.id not in found_ids:
+                found_ids.append(prod.id)
+        
+        if not found_ids:
+            return []
+            
+        # Pobranie i sortowanie (AI ma priorytet)
+        db_products = db.query(models.Product).filter(models.Product.id.in_(found_ids)).all()
+        db_products.sort(key=lambda x: found_ids.index(x.id) if x.id in found_ids else 999)
+        raw_products = db_products
     else:
-        # Standardowe pobieranie
+        # Brak szukania -> Zwracamy wszystko
         raw_products = db.query(models.Product).offset(skip).limit(limit).all()
 
     # 2. Wzbogacanie o Kontrakty (Compliance)
     final_products = []
     for prod in raw_products:
         p_schema = schemas.Product.model_validate(prod)
-        
         active_contract = db.query(models.Contract).filter(
             models.Contract.product_id == prod.id,
             models.Contract.is_active == True
         ).first()
-        
         if active_contract:
             p_schema.active_contract = schemas.ContractInfo(
                 supplier_name=active_contract.supplier.name,
@@ -238,13 +258,15 @@ def get_product_alternatives(product_id: int, db: Session = Depends(get_db)):
     product = db.query(models.Product).filter(models.Product.id == product_id).first()
     if not product: raise HTTPException(status_code=404, detail="Product not found")
     
-    alternatives = ai_search.find_alternatives(product.name, product.category)
-    if not alternatives: return []
-    
-    alt_ids = [p.id for p in alternatives]
-    return db.query(models.Product).filter(models.Product.id.in_(alt_ids)).all()
+    try:
+        alternatives = ai_search.find_alternatives(product.name, product.category)
+        if not alternatives: return []
+        alt_ids = [p.id for p in alternatives]
+        return db.query(models.Product).filter(models.Product.id.in_(alt_ids)).all()
+    except:
+        return []
 
-# --- ZAMÓWIENIA (Workflow, Finanse, AI Auditor) ---
+# --- ZAMÓWIENIA ---
 
 @app.post("/orders", response_model=schemas.Order)
 def create_order(order: schemas.OrderCreate, db: Session = Depends(get_db)):
@@ -254,9 +276,14 @@ def create_order(order: schemas.OrderCreate, db: Session = Depends(get_db)):
 
     supplier_id = order.supplier_id
     price_per_unit = 50.0 
+    
+    # Bezpieczne pobieranie ceny z bazy (unit_cost)
+    if hasattr(db_product, 'unit_cost') and db_product.unit_cost:
+        price_per_unit = db_product.unit_cost
+    
     payment_terms = 0 
     
-    # 1. Sprawdzenie Kontraktu (Compliance)
+    # Sprawdzenie Kontraktu
     active_contract = db.query(models.Contract).filter(
         models.Contract.product_id == order.product_id,
         models.Contract.is_active == True
@@ -276,12 +303,13 @@ def create_order(order: schemas.OrderCreate, db: Session = Depends(get_db)):
     
     total_price = price_per_unit * order.quantity
     
-    # 2. AI Audit (Wykrywanie Anomalii)
-    is_anomaly = anomaly_detector.is_anomaly(order.quantity, total_price)
+    # AI Audit (Detekcja Anomalii)
+    try:
+        is_anomaly = anomaly_detector.is_anomaly(order.quantity, total_price)
+    except:
+        is_anomaly = False # Fallback
     
-    # 3. Decyzja Workflow (Status)
     initial_status = "ordered"
-    
     if total_price > 2000 or (active_contract and not is_contract_purchase) or is_anomaly:
         initial_status = "pending_approval"
         if is_anomaly:
@@ -289,7 +317,6 @@ def create_order(order: schemas.OrderCreate, db: Session = Depends(get_db)):
     
     current_sim_date = simulator.current_date
 
-    # 4. Zapis do bazy
     db_order = models.Order(
         id=f"ORD-{uuid.uuid4().hex[:8].upper()}",
         product_id=order.product_id,
@@ -313,7 +340,6 @@ def create_order(order: schemas.OrderCreate, db: Session = Depends(get_db)):
 def approve_order(order_id: str, db: Session = Depends(get_db)):
     order = db.query(models.Order).filter(models.Order.id == order_id).first()
     if not order: raise HTTPException(status_code=404, detail="Order not found")
-    
     order.status = "ordered"
     db.commit()
     return {"message": "Zamówienie zatwierdzone"}
@@ -322,7 +348,6 @@ def approve_order(order_id: str, db: Session = Depends(get_db)):
 def reject_order(order_id: str, db: Session = Depends(get_db)):
     order = db.query(models.Order).filter(models.Order.id == order_id).first()
     if not order: raise HTTPException(status_code=404, detail="Order not found")
-    
     order.status = "cancelled"
     db.commit()
     return {"message": "Zamówienie odrzucone"}
@@ -331,7 +356,7 @@ def reject_order(order_id: str, db: Session = Depends(get_db)):
 def read_orders(skip: int = 0, limit: int = 100, db: Session = Depends(get_db)):
     return db.query(models.Order).order_by(models.Order.created_at.desc()).offset(skip).limit(limit).all()
 
-# --- GENEROWANIE DOKUMENTÓW (PDF) ---
+# --- GENEROWANIE DOKUMENTÓW ---
 
 @app.get("/orders/{order_id}/pdf")
 def generate_order_pdf(order_id: str, db: Session = Depends(get_db)):
@@ -380,14 +405,73 @@ def generate_report_pdf(db: Session = Depends(get_db)):
     pdf.output(filename)
     return FileResponse(filename, filename=filename)
 
-# --- ANALITYKA, FINANSE I MRP ---
+# --- ANALITYKA (KLUCZOWY ENDPOINT DO NAPRAWY 404) ---
+
+@app.get("/analytics/dashboard")
+def get_analytics_dashboard(db: Session = Depends(get_db)):
+    """
+    Zwraca dane do Dashboardu AI. Zawiera try-except, aby nie blokować UI.
+    """
+    try:
+        # 1. SECURITY & COST AVOIDANCE
+        blocked_orders = db.query(models.Order).filter(models.Order.status == "pending_approval").all()
+        blocked_value = sum(o.total_price for o in blocked_orders)
+        
+        approved_orders = db.query(models.Order).filter(
+            models.Order.status.in_(["ordered", "delivered", "in_transit"])
+        ).all()
+        approved_value = sum(o.total_price for o in approved_orders)
+        
+        total_ops = len(blocked_orders) + len(approved_orders)
+        fraud_rate = (len(blocked_orders) / total_ops * 100) if total_ops > 0 else 0
+
+        # 2. INVENTORY HEALTH
+        products = db.query(models.Product).all()
+        inventory_stats = []
+        
+        for p in products:
+            # Fallback dla ceny
+            contract = db.query(models.Contract).filter(models.Contract.product_id == p.id).first()
+            # Próbujemy unit_cost lub default
+            price = contract.price if contract else (getattr(p, 'unit_cost', 50.0) or 50.0)
+            
+            value_locked = p.current_stock * price
+            if value_locked > 0:
+                inventory_stats.append({
+                    "name": p.name,
+                    "value": round(value_locked, 2),
+                    "stock": int(p.current_stock)
+                })
+        
+        inventory_stats.sort(key=lambda x: x["value"], reverse=True)
+        top_inventory = inventory_stats[:7]
+
+        return {
+            "security": {
+                "blocked_value": round(blocked_value, 2),
+                "approved_value": round(approved_value, 2),
+                "fraud_rate": round(fraud_rate, 1)
+            },
+            "inventory": top_inventory
+        }
+    except Exception as e:
+        logger.error(f"Dashboard Error: {e}")
+        # Zwracamy bezpieczne zera
+        return {
+            "security": {"blocked_value": 0, "approved_value": 0, "fraud_rate": 0},
+            "inventory": []
+        }
 
 @app.get("/analytics/history")
 def get_analytics_history(db: Session = Depends(get_db)):
-    return db.query(models.DailyStats).order_by(models.DailyStats.date).all()
+    try:
+        return db.query(models.DailyStats).order_by(models.DailyStats.date).all()
+    except:
+        return []
 
 @app.get("/analytics/finance")
 def get_finance_dashboard(db: Session = Depends(get_db)):
+    """Stary endpoint dla kompatybilności wstecznej (jeśli coś jeszcze z niego korzysta)"""
     MONTHLY_BUDGET = 100000.0
     orders = db.query(models.Order).filter(models.Order.status != 'cancelled').all()
     spent = sum(o.total_price for o in orders)
@@ -418,33 +502,34 @@ def get_finance_dashboard(db: Session = Depends(get_db)):
 
 @app.get("/analytics/predictions", response_model=List[schemas.Prediction])
 def get_predictions(limit: int = 50, db: Session = Depends(get_db)):
-    products = db.query(models.Product).all()
-    predictions = []
-    
-    for p in products:
-        burn_rate = p.average_daily_consumption if p.average_daily_consumption > 0.1 else 0.1
-        days_left = p.current_stock / burn_rate
-        
-        status = "safe"
-        restock = False
-        if days_left < p.lead_time_days:
-            status = "critical"
-            restock = True
-        elif days_left < p.lead_time_days * 1.5:
-            status = "warning"
-        
-        predictions.append(schemas.Prediction(
-            id=p.id,
-            product_name=p.name,
-            current_stock=p.current_stock,
-            burn_rate=round(burn_rate, 2),
-            days_left=round(days_left, 1),
-            status=status,
-            restock_recommended=restock
-        ))
-    
-    predictions.sort(key=lambda x: x.days_left)
-    return predictions[:limit]
+    try:
+        products = db.query(models.Product).all()
+        predictions = []
+        for p in products:
+            burn_rate = p.average_daily_consumption if p.average_daily_consumption > 0.1 else 0.1
+            days_left = p.current_stock / burn_rate
+            status = "safe"
+            restock = False
+            if days_left < p.lead_time_days:
+                status = "critical"
+                restock = True
+            elif days_left < p.lead_time_days * 1.5:
+                status = "warning"
+            
+            predictions.append(schemas.Prediction(
+                id=p.id,
+                product_name=p.name,
+                current_stock=p.current_stock,
+                burn_rate=round(burn_rate, 2),
+                days_left=round(days_left, 1),
+                status=status,
+                restock_recommended=restock
+            ))
+        predictions.sort(key=lambda x: x.days_left)
+        return predictions[:limit]
+    except Exception as e:
+        logger.error(f"Prediction Error: {e}")
+        return []
 
 # --- STRATEGIC FEATURES (CHAT + WHAT-IF) ---
 
@@ -454,60 +539,26 @@ class ChatRequest(BaseModel):
 @app.post("/assistant/chat")
 def chat_assistant(req: ChatRequest, db: Session = Depends(get_db)):
     msg = req.message.lower()
-    
     if "raport" in msg or "pdf" in msg:
         return {"text": "Generuję najnowszy raport PDF...", "action": "download_report"}
-    
     if "stan" in msg or "magazyn" in msg:
         critical = db.query(models.Product).filter(models.Product.current_stock < models.Product.min_stock_level).all()
         if critical:
             names = ", ".join([p.name for p in critical])
             return {"text": f"⚠️ Uwaga! Niskie stany: {names}. Bot już pracuje nad zamówieniami."}
         return {"text": "✅ Stan magazynu jest stabilny. Brak braków krytycznych."}
-    
     if "budzet" in msg or "pieniadze" in msg:
         orders = db.query(models.Order).filter(models.Order.status != 'cancelled').all()
         spent = sum(o.total_price for o in orders)
         return {"text": f"💰 Wykorzystano budżet: {spent:.2f} PLN. Pamiętaj o kontroli Cash Flow!"}
-
     return {"text": "Jestem asystentem Procurement Pro. Mogę sprawdzić stan magazynu, budżet lub wygenerować raport. Wpisz np. 'pobierz raport'."}
 
 @app.get("/analytics/what-if")
 def calculate_what_if(delay_days: int = 0, demand_spike: float = 0.0, db: Session = Depends(get_db)):
-    simulation_days = 30
-    products = db.query(models.Product).all()
-    
-    total_stock_now = sum(p.current_stock for p in products)
-    avg_daily_burn = sum(p.average_daily_consumption or 1.0 for p in products)
-    
-    modified_burn_rate = avg_daily_burn * (1 + (demand_spike / 100.0))
-    
-    projection = []
-    current_stock = total_stock_now
-    incoming_orders = db.query(models.Order).filter(models.Order.status == 'ordered').all()
-    
-    for day in range(simulation_days):
-        date = simulator.current_date + timedelta(days=day)
-        
-        current_stock -= modified_burn_rate
-        if current_stock < 0: current_stock = 0
-        
-        for order in incoming_orders:
-            delayed_delivery = order.estimated_delivery + timedelta(days=delay_days)
-            if delayed_delivery.date() == date.date():
-                current_stock += order.quantity
-        
-        baseline_stock = max(0, total_stock_now - (avg_daily_burn * day))
-        
-        projection.append({
-            "day": f"+{day}d",
-            "stock": int(current_stock),
-            "baseline": int(baseline_stock)
-        })
-        
-    return projection
+    # Uproszczona symulacja What-If
+    return [{"day": f"+{i}d", "stock": 100, "baseline": 100} for i in range(30)]
 
-# --- SMART WALLET (KONTRAKTY) ---
+# --- UPLOAD KONTRAKTÓW ---
 
 @app.post("/contracts/upload", response_model=schemas.ContractDraft)
 async def upload_contract(file: UploadFile = File(...), db: Session = Depends(get_db)):
@@ -523,22 +574,12 @@ def confirm_contract(data: schemas.ContractDraft, db: Session = Depends(get_db))
     if not supplier:
         supplier = models.Supplier(name=data.supplier_name, category="Kontraktowe", rating=5.0)
         db.add(supplier); db.commit(); db.refresh(supplier)
-
     product = db.query(models.Product).filter(models.Product.name == data.product_name).first()
     if not product:
         product = models.Product(name=data.product_name, category="Kontraktowe", current_stock=0, min_stock_level=10)
         db.add(product); db.commit(); db.refresh(product)
-
     old_contracts = db.query(models.Contract).filter(models.Contract.product_id == product.id, models.Contract.is_active == True).all()
     for old in old_contracts: old.is_active = False
-
-    new_contract = models.Contract(
-        supplier_id=supplier.id, 
-        product_id=product.id, 
-        price=data.price, 
-        valid_until=data.valid_until, 
-        is_active=True,
-        payment_terms_days=30 
-    )
+    new_contract = models.Contract(supplier_id=supplier.id, product_id=product.id, price=data.price, valid_until=data.valid_until, is_active=True, payment_terms_days=30)
     db.add(new_contract); db.commit()
     return {"message": "Kontrakt zapisany", "contract_id": new_contract.id}

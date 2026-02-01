@@ -22,6 +22,7 @@ class Product(Base):
     min_stock_level = Column(Float, default=10.0)
     lead_time_days = Column(Integer, default=7)
     average_daily_consumption = Column(Float, default=1.0)
+    unit_cost = Column(Float, default=50.0)
     contracts = relationship("Contract", back_populates="product")
 
 class Contract(Base):
