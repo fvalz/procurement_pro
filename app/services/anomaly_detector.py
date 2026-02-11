@@ -4,102 +4,107 @@ import os
 import joblib
 from sklearn.ensemble import IsolationForest
 from app import models
+from typing import Optional
 
-# Konfiguracja logowania - kluczowa dla śledzenia decyzji AI w systemach Enterprise
+# Konfiguracja logowania
 logger = logging.getLogger(__name__)
 
-# Stałe konfiguracyjne algorytmu
+# Stałe konfiguracyjne
 MODEL_PATH = "anomaly_model.pkl"
 MIN_SAMPLES_FOR_TRAINING = 10
-ANOMALY_CONTAMINATION = 0.05  # Oczekiwany % anomalii w danych (5%)
+ANOMALY_CONTAMINATION = 0.05 
 
 class AnomalyDetector:
     """
-    Serwis odpowiedzialny za wykrywanie anomalii w zamówieniach przy użyciu
-    uczenia nienadzorowanego (Unsupervised Learning).
-    
-    Wykorzystuje algorytm Isolation Forest (Liu et al., 2008) do identyfikacji
-    odchyleń (outliers) w wielowymiarowej przestrzeni cech [Ilość, Cena].
+    Serwis realizujący audyt bezpieczeństwa procesów zakupowych przy użyciu Isolation Forest.
     """
 
     def __init__(self):
         self.model = IsolationForest(
             contamination=ANOMALY_CONTAMINATION,
-            random_state=42,  # Zapewnia powtarzalność wyników (dobre do testów)
-            n_jobs=-1         # Wykorzystuje wszystkie rdzenie procesora
+            random_state=42,
+            n_jobs=-1
         )
         self.is_trained = False
         self._load_model_if_exists()
 
     def _load_model_if_exists(self):
-        """Próba załadowania wcześniej wytrenowanego modelu z dysku."""
+        """Ładowanie modelu z dysku."""
         if os.path.exists(MODEL_PATH):
             try:
                 self.model = joblib.load(MODEL_PATH)
                 self.is_trained = True
-                logger.info(f"✅ [AI SECURITY] Załadowano wytrenowany model z: {MODEL_PATH}")
+                logger.info(f"✅ [AI SECURITY] Model detekcji załadowany.")
             except Exception as e:
-                logger.error(f"❌ [AI SECURITY] Błąd ładowania modelu: {e}")
+                logger.error(f"❌ [AI SECURITY] Błąd ładowania: {e}")
         else:
-            logger.warning("⚠️ [AI SECURITY] Brak zapisanego modelu. System wymaga treningu.")
+            logger.warning("⚠️ [AI SECURITY] Brak modelu. Wymagany trening.")
 
     def train(self, orders: list[models.Order]):
         """
-        Trenuje model na podstawie historycznych danych zamówień.
-        
-        Args:
-            orders: Lista obiektów zamówień z bazy danych.
+        Trenuje model na danych historycznych.
+        Cechy: [Ilość, Cena Całkowita, Cena Jednostkowa]
         """
         if not orders or len(orders) < MIN_SAMPLES_FOR_TRAINING:
-            logger.warning(f"⚠️ [AI SECURITY] Zbyt mało danych do treningu ({len(orders)}). Wymagane: {MIN_SAMPLES_FOR_TRAINING}")
+            logger.warning(f"⚠️ [AI SECURITY] Za mało danych ({len(orders)}).")
             return
 
         try:
-            # Feature Engineering: Wyciąganie cech numerycznych [Ilość, Cena całkowita]
-            # W przyszłości można dodać: [Godzina zamówienia, ID Dostawcy]
-            data = np.array([[o.quantity, o.total_price] for o in orders])
-
-            logger.info(f"🔄 [AI SECURITY] Rozpoczynanie treningu na {len(data)} próbkach...")
+            data = []
+            for o in orders:
+                # Obliczanie ceny jednostkowej jako kluczowej cechy
+                unit_price = float(o.total_price / o.quantity) if o.quantity and o.quantity > 0 else 0.0
+                data.append([float(o.quantity), float(o.total_price), unit_price])
             
-            self.model.fit(data)
+            X = np.array(data)
+
+            logger.info(f"🔄 [AI SECURITY] Trening na {len(X)} próbkach...")
+            self.model.fit(X)
             self.is_trained = True
 
-            # Persystencja: Zapis modelu na dysk
             joblib.dump(self.model, MODEL_PATH)
-            logger.info(f"✅ [AI SECURITY] Model wytrenowany i zapisany w {MODEL_PATH}")
+            logger.info(f"✅ [AI SECURITY] Trening zakończony.")
 
         except Exception as e:
-            logger.error(f"❌ [AI SECURITY] Krytyczny błąd podczas treningu: {e}")
+            logger.error(f"❌ [AI SECURITY] Błąd treningu: {e}")
 
-    def is_anomaly(self, quantity: float, total_price: float) -> bool:
+    def is_anomaly(self, quantity: float, total_price: float, contract_price: Optional[float] = None) -> bool:
         """
-        Dokonuje inferencji (predykcji) dla nowego zamówienia.
-        
-        Returns:
-            bool: True jeśli wykryto anomalię (próba oszustwa/błąd), False jeśli norma.
+        Weryfikacja zamówienia. 
+        UWAGA: Argumenty muszą być przekazywane zgodnie z sygnaturą w main.py.
         """
-        if not self.is_trained:
-            logger.warning("⚠️ [AI SECURITY] Próba detekcji na niewytrenowanym modelu. Przepuszczam transakcję.")
-            return False
-
         try:
-            # Formatowanie danych wejściowych do postaci macierzy 2D (wymóg Scikit-learn)
-            features = np.array([[quantity, total_price]])
-            
-            # Predykcja: 1 = inlier (norma), -1 = outlier (anomalia)
-            prediction = self.model.predict(features)
-            score = self.model.decision_function(features)[0] # Wynik liczbowy (dla celów analitycznych)
+            # 1. Konwersja na float, aby uniknąć błędów typów
+            q = float(quantity)
+            tp = float(total_price)
+            up = q / tp if q > 0 else 0.0
 
+            # 2. Walidacja Kontraktowa (Deterministyczna)
+            if contract_price is not None:
+                cp = float(contract_price)
+                if up > (cp * 1.15):
+                    logger.warning(f"🚨 [AI SECURITY] PRZEPŁACENIE: {up:.2f} vs Kontrakt: {cp:.2f}")
+                    return True
+
+            # 3. Analiza Statystyczna (Isolation Forest)
+            if not self.is_trained:
+                return False
+
+            # Przygotowanie danych (reshape(-1, 3) gwarantuje poprawny format macierzy)
+            features = np.array([[q, tp, up]]).reshape(1, -1)
+            
+            prediction = self.model.predict(features)
+            
             if prediction[0] == -1:
-                logger.warning(f"🚨 [AI SECURITY] WYKRYTO ANOMALIĘ! Ilość: {quantity}, Cena: {total_price}, Score: {score:.4f}")
+                score = self.model.decision_function(features)[0]
+                logger.warning(f"🚨 [AI SECURITY] ANOMALIA STATYSTYCZNA! Score: {score:.4f}")
                 return True
             
-            logger.info(f"ok [AI SECURITY] Transakcja w normie. Score: {score:.4f}")
             return False
 
         except Exception as e:
-            logger.error(f"❌ [AI SECURITY] Błąd podczas predykcji: {e}")
-            return False # Fail-open: W razie błędu kodu nie blokuj biznesu
+            logger.error(f"❌ [AI SECURITY] Błąd inferencji: {e}")
+            return False
 
-# Singleton - jedna instancja detektora na całą aplikację
+# Singleton
 anomaly_detector = AnomalyDetector()

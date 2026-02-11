@@ -1,1023 +1,486 @@
 import { useState, useEffect, useRef } from 'react'
 import axios from 'axios'
 import { 
-    ShoppingCart, 
-    Package, 
-    RefreshCw, 
-    AlertTriangle, 
-    Search, 
-    FileText, 
-    Upload, 
-    CheckCircle, 
-    Clock, 
-    CheckSquare, 
-    ShieldCheck,
-    Boxes, 
-    Filter, 
-    BarChart3, 
-    TrendingUp, 
-    CalendarRange, 
-    UserCircle, 
-    Download, 
-    XCircle, 
-    Check, 
-    Info, 
-    FileSpreadsheet, 
-    Building2, 
-    X, 
-    Wallet, 
-    Banknote, 
-    Repeat, 
-    MessageSquare, 
-    Send, 
-    Settings, 
-    Activity,
-    Terminal, // Zachowany import
-    Shield,
-    DollarSign
+    ShoppingCart, Package, RefreshCw, Search, FileText, Upload, 
+    CheckCircle, Clock, ShieldCheck, Boxes, Filter, BarChart3, 
+    TrendingUp, CalendarRange, UserCircle, Download, XCircle, 
+    Check, Info, FileSpreadsheet, Building2, X, Banknote, 
+    Repeat, MessageSquare, Send, Settings, Activity, Terminal, 
+    Shield, DollarSign, Zap, ShieldAlert, PieChart as PieIcon,
+    AlertTriangle, ArrowRight, Layers, Gavel, Wallet, Eye, 
+    Truck, BarChart as BarIcon, Briefcase
 } from 'lucide-react'
 import { 
-    AreaChart, 
-    Area, 
-    XAxis, 
-    YAxis, 
-    CartesianGrid, 
-    Tooltip, 
-    ResponsiveContainer,
-    BarChart, 
-    Bar, 
-    Legend, 
-    Line, 
-    ComposedChart, 
-    Cell 
+    AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip, 
+    ResponsiveContainer, BarChart, Bar, Legend, Cell, PieChart, Pie
 } from 'recharts';
 
 function App() {
-  // --- STANY APLIKACJI ---
-  const [activeTab, setActiveTab] = useState('market')
-  const [userRole, setUserRole] = useState('employee')
-  
-  // Dane biznesowe
+  // ==========================================
+  // 1. STANY I KONFIGURACJA
+  // ==========================================
+  const [activeTab, setActiveTab] = useState('analytics')
+  const [userRole, setUserRole] = useState('manager')
   const [products, setProducts] = useState([])
   const [orders, setOrders] = useState([])
   const [history, setHistory] = useState([]) 
   const [predictions, setPredictions] = useState([]) 
-  
-  // NOWE DANE ANALITYCZNE (Zamiast starego finance)
   const [analyticsData, setAnalyticsData] = useState(null)
-  
   const [scenarios, setScenarios] = useState([]) 
-  // Stan symulacji
-  const [simulationStatus, setSimulationStatus] = useState({ 
-      date: "Loading...", 
-      is_running: false, 
-      events: [] 
-  })
+  const [simulationStatus, setSimulationStatus] = useState({ current_date: "...", is_running: false, events: [] })
   
-  // Parametry symulacji What-If
   const [delayDays, setDelayDays] = useState(0)
   const [demandSpike, setDemandSpike] = useState(0)
-
-  // Chatbot AI
+  
   const [isChatOpen, setIsChatOpen] = useState(false)
   const [chatInput, setChatInput] = useState("")
-  const [chatMessages, setChatMessages] = useState([
-      { from: 'bot', text: 'Witaj! Jestem asystentem zakupowym. Jak mogę pomóc?' }
-  ])
+  const [chatMessages, setChatMessages] = useState([{ from: 'bot', text: 'System ERP gotowy do analizy sourcingu.' }])
   const chatEndRef = useRef(null)
-
-  // UI & Filtry
-  const [loading, setLoading] = useState(false)
   const [searchQuery, setSearchQuery] = useState("")
-  const [showLowStockOnly, setShowLowStockOnly] = useState(false)
-  
-  // Smart Wallet (Kontrakty)
   const [selectedFile, setSelectedFile] = useState(null)
-  const [contractDraft, setContractDraft] = useState(null)
-  const [uploading, setUploading] = useState(false)
-
-  // Modal Szczegółów Zamówienia
   const [selectedOrder, setSelectedOrder] = useState(null)
+  const [showLowStockOnly, setShowLowStockOnly] = useState(false)
 
   const API_URL = 'http://127.0.0.1:8000'
 
-  // --- POBIERANIE DANYCH (Cykl Życia) ---
+  // ==========================================
+  // 2. EFEKTY I POBIERANIE DANYCH
+  // ==========================================
   useEffect(() => {
-    fetchSimulationStatus()
-    fetchProducts()
-    
     const interval = setInterval(() => {
         fetchSimulationStatus()
-        
-        // Inteligentne odświeżanie w zależności od aktywnej zakładki
-        if (activeTab === 'orders') {
-            fetchOrders()
-        }
-        if (activeTab === 'inventory') {
-            fetchProducts()
-        }
-        if (activeTab === 'analytics') { 
-            fetchAnalyticsDashboard() // NOWA FUNKCJA
-            fetchHistory()
-        }
-        if (activeTab === 'forecast') { 
-            fetchPredictions()
-            if (products.length === 0) fetchProducts()
-        }
-    }, 2000) // Zwiększyłem interwał do 2s dla płynności
-    
+        if (activeTab === 'market') fetchProducts()
+        if (activeTab === 'orders') fetchOrders()
+        if (activeTab === 'analytics') { fetchAnalyticsDashboard(); fetchHistory(); }
+        if (activeTab === 'forecast') fetchPredictions()
+    }, 2000) 
     return () => clearInterval(interval)
   }, [activeTab])
 
-  // Odświeżanie scenariusza What-If
-  useEffect(() => {
-      if (activeTab === 'scenarios') {
-          fetchScenarios()
-      }
-  }, [delayDays, demandSpike, activeTab])
+  useEffect(() => { if (activeTab === 'scenarios') fetchScenarios() }, [delayDays, demandSpike, activeTab])
 
-  // Auto-scroll czatu
-  useEffect(() => {
-      chatEndRef.current?.scrollIntoView({ behavior: "smooth" })
-  }, [chatMessages])
-
-  // --- FUNKCJE API ---
-
-  const fetchProducts = async (query = "") => {
-    if (!['inventory', 'orders', 'analytics', 'forecast', 'scenarios'].includes(activeTab)) {
-        setLoading(true)
-    }
-    try {
-      const endpoint = query 
-        ? `${API_URL}/products?search=${query}&limit=100`
-        : `${API_URL}/products?limit=100`
-      const response = await axios.get(endpoint)
-      setProducts(response.data)
-    } catch (error) {
-      console.error("Błąd produktów:", error)
-    } finally {
-      setLoading(false)
-    }
-  }
-
-  const fetchOrders = async () => {
-      try {
-          const response = await axios.get(`${API_URL}/orders?limit=50`)
-          setOrders(response.data)
-      } catch (error) { console.error(error) }
-  }
-
+  const fetchProducts = async (q = "") => { try { const res = await axios.get(`${API_URL}/products?search=${q}`); setProducts(res.data) } catch (e) {} }
+  const fetchOrders = async () => { try { const res = await axios.get(`${API_URL}/orders`); setOrders(res.data) } catch (e) {} }
   const fetchHistory = async () => {
-      try {
-          const response = await axios.get(`${API_URL}/analytics/history`)
-          const formattedData = response.data.map(item => ({
-              ...item,
-              shortDate: new Date(item.date).toLocaleDateString(undefined, {month:'numeric', day:'numeric'})
-          }))
-          setHistory(formattedData)
-      } catch (error) { console.error(error) }
+    try { 
+        const res = await axios.get(`${API_URL}/analytics/history`); 
+        setHistory(res.data.map(i => ({...i, shortDate: new Date(i.date).toLocaleDateString(undefined, {month:'numeric', day:'numeric'})}))) 
+    } catch (e) {}
   }
-
-  const fetchPredictions = async () => {
-      try {
-          const response = await axios.get(`${API_URL}/analytics/predictions?limit=50`)
-          setPredictions(response.data)
-      } catch (error) { console.error(error) }
-  }
-
-  // NOWA FUNKCJA DO DASHBOARDU
-  const fetchAnalyticsDashboard = async () => {
-      try {
-          const response = await axios.get(`${API_URL}/analytics/dashboard`)
-          setAnalyticsData(response.data)
-      } catch (error) { console.error("Błąd dashboardu:", error) }
-  }
-
-  const fetchScenarios = async () => {
-      try {
-          const response = await axios.get(`${API_URL}/analytics/what-if?delay_days=${delayDays}&demand_spike=${demandSpike}`)
-          setScenarios(response.data)
-      } catch (error) { console.error(error) }
-  }
-
-  const fetchSimulationStatus = async () => {
-    try {
-      const response = await axios.get(`${API_URL}/simulation/status`)
-      setSimulationStatus(response.data)
-    } catch (error) { console.error(error) }
-  }
-
-  // --- OBSŁUGA CZATU ---
+  const fetchPredictions = async () => { try { const res = await axios.get(`${API_URL}/analytics/predictions`); setPredictions(res.data) } catch (e) {} }
+  const fetchAnalyticsDashboard = async () => { try { const res = await axios.get(`${API_URL}/analytics/dashboard`); setAnalyticsData(res.data) } catch (e) {} }
+  const fetchScenarios = async () => { try { const res = await axios.get(`${API_URL}/analytics/what-if?delay_days=${delayDays}&demand_spike=${demandSpike}`); setScenarios(res.data) } catch (e) {} }
+  const fetchSimulationStatus = async () => { try { const res = await axios.get(`${API_URL}/simulation/status`); setSimulationStatus(res.data) } catch (e) {} }
 
   const handleSendMessage = async (e) => {
-      e.preventDefault()
-      if (!chatInput.trim()) return
-
-      const userMsg = chatInput
-      setChatMessages(prev => [...prev, { from: 'user', text: userMsg }])
-      setChatInput("")
-      
-      try {
-          const response = await axios.post(`${API_URL}/assistant/chat`, { message: userMsg })
-          setChatMessages(prev => [...prev, { from: 'bot', text: response.data.text }])
-          
-          if (response.data.action === 'download_report') {
-              downloadReport()
-          }
-      } catch (error) {
-          setChatMessages(prev => [...prev, { from: 'bot', text: "Błąd połączenia z serwerem AI." }])
-      }
+      e.preventDefault(); if (!chatInput.trim()) return
+      const userMsg = chatInput; setChatMessages(prev => [...prev, { from: 'user', text: userMsg }]); setChatInput("")
+      try { const res = await axios.post(`${API_URL}/assistant/chat`, { message: userMsg }); setChatMessages(prev => [...prev, { from: 'bot', text: res.data.text }]) } catch (e) {}
   }
 
-  // --- AKCJE UŻYTKOWNIKA ---
-
-  const toggleSimulation = async () => {
-    try {
-        const response = await axios.post(`${API_URL}/simulation/toggle`)
-        setSimulationStatus(prev => ({
-            ...prev,
-            is_running: response.data.status === 'running'
-        }))
-    } catch (error) {
-        alert("Błąd połączenia z backendem: " + error.message)
-    }
-  }
-  
   const handleOrder = async (item) => {
-    let pid = item.id
-    let name = item.name || item.product_name
-
-    if (!pid) {
-        const p = products.find(x => x.name === name)
-        if (p) pid = p.id
-        else return alert("Błąd: Nie znaleziono ID produktu. Spróbuj odświeżyć.")
-    }
-
-    const qty = prompt(`Podaj ilość do zamówienia dla: ${name}`, "20")
+    const qty = prompt(`Podaj ilość dla: ${item.product_name || item.name}`, "50")
     if (!qty) return
-
-    try {
-      await axios.post(`${API_URL}/orders`, {
-        product_id: pid,
-        supplier_id: 1, // Mock supplier
-        quantity: parseFloat(qty),
-        order_type: "standard"
-      })
-      alert("✅ Zamówienie wysłane!")
-      fetchOrders()
-    } catch (error) {
-      alert("Błąd zamówienia: " + (error.response?.data?.detail || error.message))
-    }
+    try { await axios.post(`${API_URL}/orders`, { product_id: item.id, quantity: parseFloat(qty) }); alert("✅ Zamówienie wysłane!") } catch (e) {}
   }
-
-  const handleFindAlternatives = async (product) => {
-    const confirmSearch = confirm(`Czy chcesz znaleźć zamienniki AI dla produktu: ${product.name}?`)
-    if (!confirmSearch) return
-
-    try {
-        const response = await axios.get(`${API_URL}/products/${product.id}/alternatives`)
-        const alts = response.data
-        
-        if (alts.length === 0) {
-            alert("AI: Nie znaleziono wystarczająco podobnych zamienników w tej kategorii.")
-        } else {
-            let message = `🧠 AI SUGERUJE ZAMIENNIKI:\n\n`
-            alts.forEach(alt => {
-                message += `🔹 ${alt.name} (Stan: ${alt.current_stock} ${alt.unit})\n`
-            })
-            alert(message)
-        }
-    } catch (error) {
-        alert("Błąd AI: " + error.message)
-    }
-  }
-
-  const handleApprove = async (orderId) => {
-      try { 
-          await axios.put(`${API_URL}/orders/${orderId}/approve`)
-          fetchOrders()
-          setSelectedOrder(null)
-      } catch(e) { alert(e.message) }
-  }
-
-  const handleReject = async (orderId) => {
-      try { 
-          await axios.put(`${API_URL}/orders/${orderId}/reject`)
-          fetchOrders()
-          setSelectedOrder(null) 
-      } catch(e) { alert(e.message) }
-  }
-
-  const downloadReport = () => {
-      window.open(`${API_URL}/analytics/report/pdf`, '_blank')
-  }
-
-  const downloadOrderPDF = (id) => {
-      window.open(`${API_URL}/orders/${id}/pdf`, '_blank')
-  }
-
-  const handleFileChange = (e) => {
-      setSelectedFile(e.target.files[0])
-      setContractDraft(null)
-  }
-
-  const analyzeContract = async () => {
-      if (!selectedFile) return alert("Wybierz plik!")
-      setUploading(true)
-      const formData = new FormData()
-      formData.append("file", selectedFile)
-      
-      try {
-          const response = await axios.post(`${API_URL}/contracts/upload`, formData, {
-              headers: { 'Content-Type': 'multipart/form-data' }
-          })
-          setContractDraft(response.data)
-      } catch (error) {
-          alert(error.message)
-      } finally {
-          setUploading(false)
-      }
-  }
-
-  const confirmContract = async () => {
-      try {
-          await axios.post(`${API_URL}/contracts/confirm`, contractDraft)
-          alert("✅ Kontrakt zatwierdzony i dodany do bazy Compliance!")
-          setContractDraft(null)
-          setSelectedFile(null)
-      } catch (error) {
-          alert(error.message)
-      }
-  }
-
-  const handleSearchSubmit = (e) => {
-    e.preventDefault()
-    fetchProducts(searchQuery)
-  }
-
-  const inventoryProducts = showLowStockOnly 
-    ? products.filter(p => p.current_stock <= p.min_stock_level)
-    : products
 
   const calculateInvoice = (order) => {
-      const net = order.total_price / 1.23
-      const vat = order.total_price - net
-      return { net, vat, gross: order.total_price }
+    const net = order.total_price / 1.23
+    return { net, vat: order.total_price - net, gross: order.total_price }
   }
 
-  // ==========================================
-  // RENDEROWANIE WIDOKU (JSX)
-  // ==========================================
   return (
     <div className="app-layout">
       
-      {/* --- SIDEBAR --- */}
+      {/* SIDEBAR */}
       <div className="sidebar">
-        <div className="logo-section">
-            <Package size={28} color="#4f46e5" />
+        <div className="logo-area">
+            <div className="logo-box"><Zap size={24} color="#fff" fill="#fff"/></div>
             <div>
-                <div style={{fontWeight:'800', fontSize:'1.1rem', letterSpacing:'-0.5px'}}>Procurement Pro</div>
-                <div style={{fontSize:'0.7rem', color:'#64748b', fontWeight:'600'}}>AI ENTERPRISE</div>
+                <span className="logo-title">Procurement Pro</span>
+                <span className="logo-tag">v5.2.5 AI Enterprise</span>
             </div>
         </div>
 
-        <div style={{flex: 1}}>
-            <p style={{fontSize:'0.75rem', fontWeight:'700', color:'#94a3b8', paddingLeft:'16px', marginBottom:'8px'}}>MODUŁY</p>
-            <button className={`nav-btn ${activeTab === 'market' ? 'active' : ''}`} onClick={() => setActiveTab('market')}>
-                <Search size={20}/> Marketplace AI
-            </button>
-            <button className={`nav-btn ${activeTab === 'inventory' ? 'active' : ''}`} onClick={() => setActiveTab('inventory')}>
-                <Boxes size={20}/> Magazyn
-            </button>
-            <button className={`nav-btn ${activeTab === 'forecast' ? 'active' : ''}`} onClick={() => {setActiveTab('forecast'); fetchPredictions();}}>
-                <CalendarRange size={20}/> Prognoza MRP
-            </button>
-            <button className={`nav-btn ${activeTab === 'contracts' ? 'active' : ''}`} onClick={() => setActiveTab('contracts')}>
-                <FileText size={20}/> Smart Wallet
-            </button>
-            <button className={`nav-btn ${activeTab === 'orders' ? 'active' : ''}`} onClick={() => {setActiveTab('orders'); fetchOrders();}}>
-                <Clock size={20}/> Centrum Operacyjne
-            </button>
-            <button className={`nav-btn ${activeTab === 'analytics' ? 'active' : ''}`} onClick={() => {setActiveTab('analytics'); fetchAnalyticsDashboard(); fetchHistory();}}>
-                <BarChart3 size={20}/> Raporty & BI
-            </button>
-            <button className={`nav-btn ${activeTab === 'scenarios' ? 'active' : ''}`} onClick={() => setActiveTab('scenarios')} style={{color:'#7c3aed'}}>
-                <Activity size={20}/> Symulacje (Beta)
-            </button>
-        </div>
+        <nav className="side-nav">
+            <p className="nav-group-label">LOGISTYKA</p>
+            <button className={`nav-item ${activeTab === 'market' ? 'active' : ''}`} onClick={() => setActiveTab('market')}><Search size={18}/> Marketplace AI</button>
+            <button className={`nav-item ${activeTab === 'forecast' ? 'active' : ''}`} onClick={() => setActiveTab('forecast')}><Boxes size={18}/> Magazyn MRP</button>
+            <button className={`nav-item ${activeTab === 'orders' ? 'active' : ''}`} onClick={() => setActiveTab('orders')}><Truck size={18}/> Monitoring</button>
 
-        <div style={{borderTop:'1px solid #e2e8f0', paddingTop:'20px'}}>
-            <div style={{display:'flex', alignItems:'center', gap:'10px', marginBottom:'15px'}}>
-                <div style={{width:'36px', height:'36px', borderRadius:'50%', background:'#e0e7ff', display:'flex', alignItems:'center', justifyContent:'center'}}>
-                    <UserCircle size={20} color="#4f46e5"/>
-                </div>
-                <div>
-                    <div style={{fontSize:'0.85rem', fontWeight:'600'}}>
-                        {userRole === 'manager' ? 'Administrator' : 'Jan Kowalski'}
-                    </div>
-                    <select 
-                        value={userRole} 
-                        onChange={(e) => setUserRole(e.target.value)}
-                        style={{fontSize:'0.75rem', border:'none', padding:'0', color:'#64748b', background:'transparent', cursor:'pointer'}}
-                    >
-                        <option value="employee">Pracownik</option>
-                        <option value="manager">Manager</option>
-                    </select>
+            <p className="nav-group-label" style={{marginTop:'25px'}}>STRATEGIA</p>
+            <button className={`nav-item ${activeTab === 'analytics' ? 'active' : ''}`} onClick={() => setActiveTab('analytics')}><BarChart3 size={18}/> Raporty & BI</button>
+            <button className={`nav-item ${activeTab === 'contracts' ? 'active' : ''}`} onClick={() => setActiveTab('contracts')}><Wallet size={18}/> Smart Wallet</button>
+            <button className={`nav-item ${activeTab === 'scenarios' ? 'active' : ''}`} onClick={() => setActiveTab('scenarios')} style={{color:'#a855f7'}}><Activity size={18}/> Symulacje Risk</button>
+        </nav>
+
+        <div className="sidebar-bottom">
+            <div className="user-profile">
+                <div className="avatar">JD</div>
+                <div className="user-text">
+                    <span className="user-name">Manager Sourcingu</span>
+                    <span className="user-status">Online</span>
                 </div>
             </div>
         </div>
       </div>
 
-      {/* --- CONTENT --- */}
-      <div className="main-content">
-        
-        {/* Header */}
-        <div className="header-bar">
-            <div>
-                <h2 style={{margin:0}}>
-                    {activeTab === 'market' && 'Marketplace'}
-                    {activeTab === 'inventory' && 'Stany Magazynowe'}
-                    {activeTab === 'forecast' && 'Planowanie Zapotrzebowania (AI)'}
-                    {activeTab === 'contracts' && 'Cyfrowe Umowy'}
-                    {activeTab === 'orders' && 'Centrum Operacyjne'}
-                    {activeTab === 'analytics' && 'Centrum Analityczne AI'}
-                    {activeTab === 'scenarios' && 'Symulacje Strategiczne (What-If)'}
-                </h2>
-                <p style={{margin:'4px 0 0 0', color:'#64748b', fontSize:'0.9rem'}}>Panel zarządzania procesami zakupowymi</p>
+      <div className="main-viewport">
+        {/* TOP HEADER */}
+        <header className="top-header">
+            <div className="breadcrumb">
+                <h2>{activeTab.toUpperCase()}</h2>
+                <p>Analiza łańcucha dostaw w czasie rzeczywistym</p>
             </div>
 
-            <div className="card" style={{padding:'8px 16px', display:'flex', alignItems:'center', gap:'20px', borderRadius:'30px', border:'1px solid #e2e8f0', boxShadow:'none'}}>
-                <div style={{textAlign:'right'}}>
-                    <div style={{fontSize:'0.7rem', fontWeight:'700', color:'#94a3b8', letterSpacing:'0.5px'}}>DATA SYSTEMOWA</div>
-                    <div style={{fontFamily:'monospace', fontWeight:'600', fontSize:'1rem'}}>
-                        {simulationStatus?.current_date || '...'}
-                    </div>
+            <div className="simulation-widget">
+                <div className="sim-time">
+                    <span className="label">DATA SYSTEMOWA</span>
+                    <span className="val">{simulationStatus?.current_date}</span>
                 </div>
                 <button 
-                    onClick={toggleSimulation}
-                    style={{
-                        background: simulationStatus?.is_running ? '#fee2e2' : '#dcfce7',
-                        color: simulationStatus?.is_running ? '#dc2626' : '#16a34a',
-                        border:'none', borderRadius:'50%', width:'40px', height:'40px', display:'flex', alignItems:'center', justifyContent:'center', cursor:'pointer'
-                    }}
+                    onClick={() => axios.post(`${API_URL}/simulation/toggle`)} 
+                    className={`sim-action ${simulationStatus?.is_running ? 'stop' : 'start'}`}
                 >
-                    {simulationStatus?.is_running ? 
-                        <div style={{width:'12px', height:'12px', background:'currentColor', borderRadius:'2px'}}/> : 
-                        <div style={{width:0, height:0, borderTop:'6px solid transparent', borderBottom:'6px solid transparent', borderLeft:'10px solid currentColor', marginLeft:'3px'}}/>
-                    }
+                    {simulationStatus?.is_running ? <X size={16}/> : <Activity size={16}/>}
+                    {simulationStatus?.is_running ? 'STOP' : 'RUN'}
                 </button>
             </div>
-        </div>
+        </header>
 
-        {/* --- SCENARIOS --- */}
-        {activeTab === 'scenarios' && (
-            <div>
-                <div style={{display:'flex', gap:'20px', marginBottom:'20px'}}>
-                    <div className="card" style={{width:'300px'}}>
-                        <h3 style={{marginTop:0, display:'flex', alignItems:'center', gap:'10px'}}>
-                            <Settings size={20}/> Parametry
-                        </h3>
-                        <div style={{marginBottom:'20px'}}>
-                            <label style={{display:'block', marginBottom:'5px', fontSize:'0.9rem', color:'#64748b'}}>Opóźnienie dostaw (dni)</label>
-                            <input type="range" min="0" max="30" value={delayDays} onChange={e=>setDelayDays(e.target.value)} style={{width:'100%'}}/>
-                            <div style={{textAlign:'right', fontWeight:'bold'}}>{delayDays} dni</div>
+        <div className="content-scroll">
+
+            {/* DASHBOARD ANALITYCZNY */}
+            {activeTab === 'analytics' && analyticsData && (
+                <div className="view-fade">
+                    <div className="kpi-grid">
+                        <div className="kpi-tile gradient-blue">
+                            <div className="kpi-icon"><DollarSign/></div>
+                            <div className="kpi-info"><span>Wydatki Łączne</span><h3>{analyticsData.summary.total_spend.toLocaleString()} PLN</h3></div>
                         </div>
-                        <div>
-                            <label style={{display:'block', marginBottom:'5px', fontSize:'0.9rem', color:'#64748b'}}>Wzrost popytu (Szok)</label>
-                            <input type="range" min="0" max="200" value={demandSpike} onChange={e=>setDemandSpike(e.target.value)} style={{width:'100%'}}/>
-                            <div style={{textAlign:'right', fontWeight:'bold'}}>+{demandSpike}%</div>
+                        <div className="kpi-tile gradient-red">
+                            <div className="kpi-icon"><Shield/></div>
+                            <div className="kpi-info"><span>Oszczędność AI</span><h3>{analyticsData.summary.blocked_value.toLocaleString()} PLN</h3></div>
+                        </div>
+                        <div className="kpi-tile gradient-green">
+                            <div className="kpi-icon"><Activity/></div>
+                            <div className="kpi-info"><span>Efektywność JIT</span><h3>{100 - analyticsData.security.fraud_rate}%</h3></div>
                         </div>
                     </div>
-                    <div className="card" style={{flex:1, height:'400px'}}>
-                        <h3 style={{marginTop:0}}>Projekcja Stanów Magazynowych</h3>
-                        <ResponsiveContainer>
-                            <AreaChart data={scenarios}>
-                                <CartesianGrid strokeDasharray="3 3" vertical={false}/>
-                                <XAxis dataKey="day"/>
-                                <YAxis/>
+
+                    <div className="chart-section">
+                        <div className="main-chart card">
+                            <div className="chart-header">
+                                <div><h4>Strategia Doboru Dostawców</h4><p>Optymalizacja Koszt vs Ryzyko (Lead-Time)</p></div>
+                                <Gavel size={20} color="#6366f1"/>
+                            </div>
+                            <ResponsiveContainer width="100%" height={300}>
+                                <BarChart data={analyticsData.sourcing_stats}>
+                                    <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#f1f5f9"/>
+                                    <XAxis dataKey="name" fontSize={11} stroke="#64748b" axisLine={false} tickLine={false}/>
+                                    <YAxis fontSize={11} stroke="#64748b" axisLine={false} tickLine={false}/>
+                                    <Tooltip cursor={{fill: '#f8fafc'}} contentStyle={{borderRadius:'10px', border:'none', boxShadow:'0 10px 15px -3px rgba(0,0,0,0.1)'}}/>
+                                    <Bar dataKey="value" radius={[6, 6, 0, 0]} barSize={50}>
+                                        {analyticsData.sourcing_stats.map((e, i) => <Cell key={i} fill={i === 0 ? '#6366f1' : '#f59e0b'}/>)}
+                                    </Bar>
+                                </BarChart>
+                            </ResponsiveContainer>
+                        </div>
+
+                        <div className="side-chart card">
+                            <h4>Audyt Bezpieczeństwa</h4>
+                            <ResponsiveContainer width="100%" height={250}>
+                                <PieChart>
+                                    <Pie data={[{name:'Zatwierdzone', value: analyticsData.security.approved_value}, {name:'Anomalia', value: analyticsData.security.blocked_value}]} innerRadius={60} outerRadius={85} dataKey="value" paddingAngle={5} stroke="none">
+                                        <Cell fill="#10b981"/><Cell fill="#f43f5e"/>
+                                    </Pie>
+                                    <Tooltip/>
+                                    <Legend verticalAlign="bottom" iconType="circle"/>
+                                </PieChart>
+                            </ResponsiveContainer>
+                        </div>
+                    </div>
+
+                    <div className="card sawtooth-card" style={{marginTop:'25px'}}>
+                        <div className="chart-header">
+                            <div><h4>Cykl Magazynowy (Wykres Piłokształtny)</h4><p>Wizualizacja dostaw JIT i zużycia bieżącego</p></div>
+                            <TrendingUp color="#6366f1"/>
+                        </div>
+                        <ResponsiveContainer width="100%" height={300}>
+                            <AreaChart data={history}>
+                                <defs>
+                                    <linearGradient id="colorValue" x1="0" y1="0" x2="0" y2="1">
+                                        <stop offset="5%" stopColor="#6366f1" stopOpacity={0.2}/>
+                                        <stop offset="95%" stopColor="#6366f1" stopOpacity={0}/>
+                                    </linearGradient>
+                                </defs>
+                                <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#f1f5f9"/>
+                                <XAxis dataKey="shortDate" fontSize={10} stroke="#94a3b8" axisLine={false}/>
+                                <YAxis fontSize={10} stroke="#94a3b8" axisLine={false}/>
                                 <Tooltip/>
-                                <Legend/>
-                                <Area type="monotone" dataKey="baseline" name="Bez zmian (Baseline)" stroke="#94a3b8" fill="#f1f5f9" />
-                                <Area type="monotone" dataKey="stock" name="Symulacja (Scenario)" stroke="#7c3aed" fill="#8b5cf6" fillOpacity={0.6} />
+                                <Area type="monotone" dataKey="total_inventory_value" stroke="#6366f1" strokeWidth={3} fill="url(#colorValue)" animationDuration={1500}/>
                             </AreaChart>
                         </ResponsiveContainer>
                     </div>
                 </div>
-            </div>
-        )}
-
-        {/* --- CHAT --- */}
-        <div style={{position:'fixed', bottom:'20px', right:'20px', zIndex:2000}}>
-            {!isChatOpen && (
-                <button onClick={()=>setIsChatOpen(true)} style={{width:'60px', height:'60px', borderRadius:'50%', background:'#4f46e5', color:'white', border:'none', boxShadow:'0 4px 12px rgba(79, 70, 229, 0.4)', cursor:'pointer', display:'flex', justifyContent:'center', alignItems:'center'}}>
-                    <MessageSquare size={28}/>
-                </button>
             )}
-            {isChatOpen && (
-                <div style={{width:'350px', height:'500px', background:'white', borderRadius:'16px', boxShadow:'0 10px 40px rgba(0,0,0,0.2)', display:'flex', flexDirection:'column', overflow:'hidden'}}>
-                    <div style={{padding:'15px', background:'#4f46e5', color:'white', display:'flex', justifyContent:'space-between', alignItems:'center'}}>
-                        <div style={{fontWeight:'bold'}}>Procure-Chat AI</div>
-                        <button onClick={()=>setIsChatOpen(false)} style={{background:'transparent', border:'none', color:'white', cursor:'pointer'}}><X size={20}/></button>
-                    </div>
-                    <div style={{flex:1, padding:'15px', overflowY:'auto', background:'#f8fafc', display:'flex', flexDirection:'column', gap:'10px'}}>
-                        {chatMessages.map((msg, i) => (
-                            <div key={i} style={{alignSelf: msg.from==='user'?'flex-end':'flex-start', background: msg.from==='user'?'#4f46e5':'white', color: msg.from==='user'?'white':'#1e293b', padding:'10px 14px', borderRadius:'12px', border: msg.from==='bot'?'1px solid #e2e8f0':'none', maxWidth:'80%', fontSize:'0.9rem', whiteSpace:'pre-line'}}>
-                                {msg.text}
-                            </div>
-                        ))}
-                        <div ref={chatEndRef}/>
-                    </div>
-                    <form onSubmit={handleSendMessage} style={{padding:'10px', borderTop:'1px solid #e2e8f0', display:'flex', gap:'10px'}}>
-                        <input value={chatInput} onChange={e=>setChatInput(e.target.value)} placeholder="Zapytaj o stan, budżet..." style={{flex:1, border:'1px solid #cbd5e1', borderRadius:'20px', padding:'8px 12px', outline:'none'}}/>
-                        <button type="submit" style={{background:'#4f46e5', color:'white', border:'none', borderRadius:'50%', width:'36px', height:'36px', display:'flex', justifyContent:'center', alignItems:'center', cursor:'pointer'}}><Send size={18}/></button>
-                    </form>
-                </div>
-            )}
-        </div>
 
-        {/* --- MODAL --- */}
-        {selectedOrder && (
-            <div style={{
-                position: 'fixed', top: 0, left: 0, width: '100%', height: '100%', 
-                background: 'rgba(0,0,0,0.5)', display: 'flex', justifyContent: 'center', alignItems: 'center', zIndex: 1000
-            }}>
-                <div style={{background: 'white', padding: '30px', borderRadius: '12px', width: '650px', maxWidth: '95%', maxHeight: '90vh', overflowY: 'auto', boxShadow: '0 20px 25px -5px rgb(0 0 0 / 0.1)'}}>
-                    
-                    <div style={{display:'flex', justifyContent:'space-between', marginBottom:'20px'}}>
-                        <div>
-                            <h2 style={{margin:0, display:'flex', alignItems:'center', gap:'10px'}}>
-                                Zamówienie {selectedOrder.id}
-                                {selectedOrder.id.startsWith('AUTO') && <span style={{fontSize:'0.7rem', background:'#e0f2fe', color:'#0284c7', padding:'2px 6px', borderRadius:'4px'}}>🤖 BOT</span>}
-                            </h2>
-                            <span style={{color:'#64748b', fontSize:'0.9rem'}}>Utworzono: {new Date(selectedOrder.created_at).toLocaleString()}</span>
-                        </div>
-                        <button onClick={() => setSelectedOrder(null)} style={{background:'transparent', border:'none', cursor:'pointer'}}><X size={24} color="#64748b"/></button>
-                    </div>
-
-                    <div style={{display:'grid', gridTemplateColumns:'1fr 1fr', gap:'20px', marginBottom:'30px'}}>
-                        <div style={{background:'#f8fafc', padding:'15px', borderRadius:'8px'}}>
-                            <div style={{fontWeight:'bold', marginBottom:'10px', display:'flex', alignItems:'center', gap:'5px', color:'#475569'}}><Package size={16}/> Produkt</div>
-                            <div style={{fontWeight:'500'}}>{selectedOrder.product?.name}</div>
-                            <div style={{color:'#64748b', fontSize:'0.9rem'}}>{selectedOrder.product?.category}</div>
-                            <div style={{marginTop:'5px', fontSize:'0.9rem'}}>Ilość: <strong>{selectedOrder.quantity} {selectedOrder.product?.unit}</strong></div>
-                        </div>
-                        <div style={{background:'#f8fafc', padding:'15px', borderRadius:'8px'}}>
-                            <div style={{fontWeight:'bold', marginBottom:'10px', display:'flex', alignItems:'center', gap:'5px', color:'#475569'}}><Building2 size={16}/> Dostawca</div>
-                            <div style={{fontWeight:'500'}}>{selectedOrder.supplier?.name || "Zakup Giełdowy (Spot)"}</div>
-                            <div style={{color:'#64748b', fontSize:'0.9rem'}}>Rating: {selectedOrder.supplier?.rating || '-'}/5.0</div>
-                            <div style={{marginTop:'5px', fontSize:'0.8rem', color:'#4f46e5'}}>{selectedOrder.supplier ? "Partner Zweryfikowany" : "Dostawca Spot"}</div>
+            {/* MAGAZYN MRP (Z POPRAWIONĄ DATĄ) */}
+            {activeTab === 'forecast' && (
+                <div className="card table-view view-fade" style={{padding:0, overflow:'hidden'}}>
+                    <div className="table-header-premium">
+                        <div className="title-group">
+                            <h3>Magazyn MRP (Just-in-Time)</h3>
+                            <p>Symulacja cykli produkcyjnych i zapasów bezpieczeństwa</p>
                         </div>
                     </div>
-
-                    <div style={{border:'1px solid #e2e8f0', borderRadius:'8px', padding:'20px', marginBottom:'20px'}}>
-                        <div style={{fontWeight:'bold', marginBottom:'15px', display:'flex', alignItems:'center', gap:'5px', color:'#0f172a'}}>
-                            <FileSpreadsheet size={18}/> Dane Finansowe (Symulacja Faktury)
-                        </div>
-                        <div style={{display:'flex', justifyContent:'space-between', marginBottom:'5px', fontSize:'0.95rem'}}>
-                            <span style={{color:'#64748b'}}>Wartość Netto:</span>
-                            <span>{calculateInvoice(selectedOrder).net.toFixed(2)} PLN</span>
-                        </div>
-                        <div style={{display:'flex', justifyContent:'space-between', marginBottom:'5px', fontSize:'0.95rem'}}>
-                            <span style={{color:'#64748b'}}>VAT (23%):</span>
-                            <span>{calculateInvoice(selectedOrder).vat.toFixed(2)} PLN</span>
-                        </div>
-                        <div style={{display:'flex', justifyContent:'space-between', marginTop:'10px', paddingTop:'10px', borderTop:'1px dashed #e2e8f0', fontWeight:'bold', fontSize:'1.2rem'}}>
-                            <span>Do Zapłaty (Brutto):</span>
-                            <span style={{color:'#059669'}}>{calculateInvoice(selectedOrder).gross.toFixed(2)} PLN</span>
-                        </div>
-                    </div>
-
-                    <div style={{background:'#f0fdf4', border:'1px solid #bbf7d0', padding:'15px', borderRadius:'8px', marginBottom:'20px'}}>
-                        <div style={{fontWeight:'bold', color:'#166534', display:'flex', alignItems:'center', gap:'5px', marginBottom:'8px'}}>
-                            <Banknote size={18}/> Warunki Płatności (Cash Flow)
-                        </div>
-                        <div style={{display:'flex', justifyContent:'space-between', fontSize:'0.9rem'}}>
-                            <span>Termin płatności:</span>
-                            <strong>{selectedOrder.payment_terms_days} dni</strong>
-                        </div>
-                        <div style={{display:'flex', justifyContent:'space-between', fontSize:'0.9rem', marginTop:'4px'}}>
-                            <span>Data wymagalności:</span>
-                            <strong>{selectedOrder.payment_due_date ? new Date(selectedOrder.payment_due_date).toLocaleDateString() : '-'}</strong>
-                        </div>
-                    </div>
-
-                    <div style={{display:'flex', gap:'10px', marginTop:'25px', paddingTop:'20px', borderTop:'1px solid #e2e8f0'}}>
-                        <button 
-                            onClick={() => downloadOrderPDF(selectedOrder.id)} 
-                            className="primary-btn" 
-                            style={{flex:1, display:'flex', justifyContent:'center', alignItems:'center', gap:'8px', background:'#475569'}}
-                        >
-                            <FileText size={18}/> Pobierz PO (PDF)
-                        </button>
-                        
-                        {selectedOrder.status === 'pending_approval' && userRole === 'manager' && (
-                            <>
-                                <button onClick={() => handleApprove(selectedOrder.id)} className="primary-btn" style={{flex:1, background:'#16a34a', display:'flex', justifyContent:'center', alignItems:'center', gap:'8px'}}>
-                                    <Check size={18}/> Zatwierdź
-                                </button>
-                                <button onClick={() => handleReject(selectedOrder.id)} className="primary-btn" style={{flex:1, background:'#dc2626', display:'flex', justifyContent:'center', alignItems:'center', gap:'8px'}}>
-                                    <XCircle size={18}/> Odrzuć
-                                </button>
-                            </>
-                        )}
-                    </div>
-                </div>
-            </div>
-        )}
-
-        {/* --- MARKET --- */}
-        {activeTab === 'market' && (
-            <>
-                <div className="card" style={{ marginBottom: '30px', background: 'white', padding: '20px', borderRadius: '8px', boxShadow: '0 1px 3px rgba(0,0,0,0.1)' }}>
-                    <form onSubmit={handleSearchSubmit} style={{ display: 'flex', gap: '10px' }}>
-                        <div style={{ position: 'relative', flexGrow: 1 }}>
-                            <Search style={{ position: 'absolute', left: '12px', top: '12px', color: '#9ca3af' }} size={20} />
-                            <input 
-                                type="text" 
-                                placeholder="Wpisz potrzebę biznesową (np. 'sprzęt IT', 'artykuły biurowe')..." 
-                                value={searchQuery}
-                                onChange={(e) => setSearchQuery(e.target.value)}
-                                style={{ width: '100%', padding: '10px 10px 10px 40px', borderRadius: '6px', border: '1px solid #d1d5db', fontSize: '1rem', boxSizing: 'border-box'}}
-                            />
-                        </div>
-                        <button type="submit" className="primary-btn">Szukaj z AI</button>
-                    </form>
-                    <div style={{marginTop:'10px', fontSize:'0.85rem', color:'#6b7280'}}>
-                        💡 <i>System używa <b>Semantic Search</b>. Wpisz intencję, a nie dokładną nazwę.</i>
-                    </div>
-                </div>
-
-                {loading ? (
-                    <div style={{textAlign:'center', padding:'60px', color:'#94a3b8'}}>🔄 Przeszukiwanie bazy wiedzy...</div>
-                ) : (
-                    <div className="grid">
-                        {products.map((product) => (
-                        <div key={product.id} className="card" style={{position:'relative', border: product.active_contract ? '2px solid #10b981' : '1px solid #e2e8f0'}}>
-                            {product.active_contract && (
-                                <div style={{position:'absolute', top:'12px', right:'12px', color:'#10b981', display:'flex', alignItems:'center', gap:'4px', fontSize:'0.75rem', fontWeight:'700'}}>
-                                    <ShieldCheck size={16}/> KONTRAKT
-                                </div>
-                            )}
-                            <h3 style={{margin:'0 0 8px 0', fontSize:'1.1rem'}}>{product.name}</h3>
-                            <div style={{display:'flex', gap:'8px', marginBottom:'16px'}}>
-                                <span style={{background:'#f1f5f9', padding:'4px 8px', borderRadius:'6px', fontSize:'0.75rem', fontWeight:'600', color:'#475569'}}>
-                                    {product.category}
-                                </span>
-                                {product.current_stock <= product.min_stock_level && (
-                                    <span style={{background:'#fee2e2', color:'#dc2626', padding:'4px 8px', borderRadius:'6px', fontSize:'0.75rem', fontWeight:'600'}}>
-                                        NISKI STAN
-                                    </span>
-                                )}
-                            </div>
-                            <div style={{margin:'15px 0', fontSize:'0.9rem', color:'#4b5563'}}>
-                                <div style={{display:'flex', justifyContent:'space-between', marginBottom:'5px'}}>
-                                    <span>Stan:</span>
-                                    <span style={{fontWeight:'bold', color: product.current_stock <= product.min_stock_level ? '#dc2626' : '#059669'}}>
-                                        {product.current_stock} {product.unit}
-                                    </span>
-                                </div>
-                                <div style={{display:'flex', justifyContent:'space-between', alignItems:'center'}}>
-                                    <span>Dostawca:</span>
-                                    {product.active_contract ? 
-                                        <span style={{color:'#059669', fontWeight:'bold'}}>{product.active_contract.supplier_name}</span> : 
-                                        <span style={{color:'#94a3b8', fontStyle:'italic'}}>Spot Market</span>
-                                    }
-                                </div>
-                                {product.active_contract && (
-                                    <div style={{textAlign:'right', fontSize:'0.8rem', color:'#059669', marginTop:'2px'}}>
-                                        Cena: {product.active_contract.price.toFixed(2)} PLN
-                                    </div>
-                                )}
-                            </div>
-
-                            <div style={{display:'flex', gap:'10px', marginTop:'10px'}}>
-                                <button onClick={() => handleOrder(product)} className="primary-btn" style={{flex:1, display:'flex', justifyContent:'center', gap:'8px'}}>
-                                    <ShoppingCart size={18} /> Zamów
-                                </button>
-                                <button 
-                                    onClick={() => handleFindAlternatives(product)} 
-                                    style={{width:'42px', display:'flex', justifyContent:'center', alignItems:'center', background:'#fff', border:'1px solid #cbd5e1', borderRadius:'8px', cursor:'pointer', color:'#475569'}}
-                                    title="Znajdź zamiennik AI"
-                                >
-                                    <Repeat size={20}/>
-                                </button>
-                            </div>
-                        </div>
-                        ))}
-                    </div>
-                )}
-            </>
-        )}
-
-        {/* --- INVENTORY --- */}
-        {activeTab === 'inventory' && (
-            <div className="card" style={{padding:0, overflow:'hidden'}}>
-                <div style={{padding:'16px', borderBottom:'1px solid #e2e8f0', display:'flex', justifyContent:'space-between'}}>
-                    <div style={{fontWeight:'600'}}>Lista Produktów</div>
-                    <button onClick={() => setShowLowStockOnly(!showLowStockOnly)} style={{background:'transparent', border:'none', color: showLowStockOnly ? '#dc2626' : '#64748b', cursor:'pointer', fontWeight:'600', display:'flex', gap:'6px'}}>
-                        <Filter size={18}/> {showLowStockOnly ? 'Pokaż Wszystkie' : 'Tylko Krytyczne'}
-                    </button>
-                </div>
-                <table>
-                    <thead><tr><th>Produkt</th><th>Kategoria</th><th>Stan / Min</th><th>Wizualizacja</th><th>Akcja</th></tr></thead>
-                    <tbody>
-                        {inventoryProducts.map(p => {
-                            const pct = Math.min(100, (p.current_stock / (p.min_stock_level * 2.5)) * 100);
-                            const color = p.current_stock === 0 ? '#dc2626' : p.current_stock <= p.min_stock_level ? '#f59e0b' : '#10b981';
-                            return (
-                                <tr key={p.id}>
-                                    <td style={{fontWeight:'500'}}>{p.name}</td>
-                                    <td><span style={{fontSize:'0.75rem', background:'#f1f5f9', padding:'2px 8px', borderRadius:'4px', color:'#475569'}}>{p.category}</span></td>
-                                    <td>{p.current_stock} <span style={{color:'#94a3b8'}}>/ {p.min_stock_level}</span></td>
-                                    <td style={{width:'30%'}}>
-                                        <div style={{height:'6px', background:'#e2e8f0', borderRadius:'3px', overflow:'hidden'}}>
-                                            <div style={{width:`${pct}%`, background:color, height:'100%', transition:'width 0.5s'}}/>
-                                        </div>
-                                    </td>
-                                    <td style={{textAlign:'right'}}>
-                                        <button onClick={() => handleOrder(p)} style={{background:'transparent', border:'1px solid #cbd5e1', borderRadius:'6px', padding:'4px 10px', cursor:'pointer', fontSize:'0.85rem'}}>Uzupełnij</button>
-                                    </td>
-                                </tr>
-                            )
-                        })}
-                    </tbody>
-                </table>
-            </div>
-        )}
-
-        {/* --- FORECAST --- */}
-        {activeTab === 'forecast' && (
-            <div className="card" style={{padding:0, overflow:'hidden'}}>
-                <div style={{padding:'24px', borderBottom:'1px solid #e2e8f0', background:'#f8fafc'}}>
-                    <h3 style={{margin:0}}>Planowanie MRP (Just-in-Time)</h3>
-                    <p style={{margin:'4px 0 0 0', fontSize:'0.85rem', color:'#64748b'}}>System AI analizuje tempo zużycia (Burn Rate) i sugeruje moment zakupu.</p>
-                </div>
-                {predictions.length === 0 ? <div style={{padding:'40px', textAlign:'center', color:'#94a3b8'}}>Zbieranie danych symulacyjnych...</div> : (
-                <table>
-                    <thead>
-                        <tr style={{background:'#f8fafc'}}>
-                            <th>Produkt</th>
-                            <th style={{textAlign:'right'}}>Zapas</th>
-                            <th style={{textAlign:'right'}}>Zużycie (AI)</th>
-                            <th style={{textAlign:'center'}}>Zapas (Dni)</th>
-                            <th style={{textAlign:'center'}}>Lead Time</th>
-                            <th>Status</th>
-                            <th style={{textAlign:'right'}}>Akcja</th>
-                        </tr>
-                    </thead>
-                    <tbody>
-                        {predictions.map((pred, i) => {
-                            const productInfo = products.find(p => p.id === pred.id);
-                            const leadTime = productInfo?.lead_time_days || 7;
-                            const buffer = pred.days_left - leadTime;
-                            
-                            let badge = {bg:'#dcfce7', text:'Bezpieczny', color:'#166534'};
-                            if(buffer < 2) badge = {bg:'#fef3c7', text:'Zamów Dziś', color:'#b45309'};
-                            if(buffer < 0) badge = {bg:'#fee2e2', text:'KRYTYCZNY', color:'#991b1b'};
-
-                            return (
-                                <tr key={i}>
-                                    <td style={{fontWeight:'500'}}>{pred.product_name}</td>
-                                    <td style={{textAlign:'right'}}>{pred.current_stock}</td>
-                                    <td style={{textAlign:'right', fontFamily:'monospace'}}>{pred.burn_rate.toFixed(2)}/d</td>
-                                    <td style={{textAlign:'center', fontWeight:'700'}}>{pred.days_left.toFixed(1)}</td>
-                                    <td style={{textAlign:'center', color:'#64748b'}}>{leadTime} dni</td>
-                                    <td>
-                                        <span style={{background:badge.bg, color:badge.color, padding:'4px 8px', borderRadius:'12px', fontSize:'0.75rem', fontWeight:'700', textTransform:'uppercase'}}>{badge.text}</span>
-                                    </td>
-                                    <td style={{textAlign:'right'}}>
-                                        {buffer < 3 && <button onClick={() => handleOrder(pred)} className="primary-btn" style={{padding:'6px 12px', fontSize:'0.8rem'}}>Zamów</button>}
-                                    </td>
-                                </tr>
-                            )
-                        })}
-                    </tbody>
-                </table>
-                )}
-            </div>
-        )}
-
-        {/* --- CONTRACTS --- */}
-        {activeTab === 'contracts' && (
-            <div style={{display:'flex', gap:'40px', alignItems:'flex-start'}}>
-                <div className="card" style={{flex:1, textAlign:'center', padding:'40px'}}>
-                    <div style={{width:'64px', height:'64px', background:'#e0e7ff', borderRadius:'50%', display:'flex', alignItems:'center', justifyContent:'center', margin:'0 auto 20px auto'}}>
-                        <Upload size={32} color="#4f46e5"/>
-                    </div>
-                    <h3>Wgraj nową umowę</h3>
-                    <p style={{color:'#64748b', marginBottom:'24px'}}>Obsługujemy PDF. AI automatycznie wykona OCR.</p>
-                    
-                    <input type="file" id="file" onChange={handleFileChange} style={{display:'none'}} accept="application/pdf"/>
-                    <label htmlFor="file" className="primary-btn" style={{display:'inline-block', padding:'12px 24px'}}>Wybierz Plik</label>
-                    
-                    {selectedFile && <div style={{marginTop:'16px', fontWeight:'600'}}>{selectedFile.name}</div>}
-                    {selectedFile && !contractDraft && (
-                        <button onClick={analyzeContract} disabled={uploading} style={{marginTop:'16px', width:'100%', background:'#0f172a', color:'white', border:'none', padding:'12px', borderRadius:'8px', cursor:'pointer'}}>
-                            {uploading ? 'Analizowanie...' : 'Uruchom AI OCR'}
-                        </button>
-                    )}
-                </div>
-
-                {contractDraft && (
-                    <div className="card" style={{flex:1, border:'2px solid #10b981'}}>
-                        <div style={{display:'flex', alignItems:'center', gap:'10px', color:'#10b981', marginBottom:'20px'}}>
-                            <CheckCircle size={24}/>
-                            <h3 style={{margin:0}}>Analiza Zakończona</h3>
-                        </div>
-                        <div style={{display:'grid', gridTemplateColumns:'1fr 1fr', gap:'20px', marginBottom:'24px'}}>
-                            <div><div style={{fontSize:'0.8rem', color:'#64748b'}}>Dostawca</div><div style={{fontWeight:'600', fontSize:'1.1rem'}}>{contractDraft.supplier_name}</div></div>
-                            <div><div style={{fontSize:'0.8rem', color:'#64748b'}}>Produkt</div><div style={{fontWeight:'600', fontSize:'1.1rem'}}>{contractDraft.product_name}</div></div>
-                            <div><div style={{fontSize:'0.8rem', color:'#64748b'}}>Cena</div><div style={{fontWeight:'600', fontSize:'1.1rem', color:'#059669'}}>{contractDraft.price} PLN</div></div>
-                            <div><div style={{fontSize:'0.8rem', color:'#64748b'}}>Ważność</div><div style={{fontWeight:'600', fontSize:'1.1rem'}}>{contractDraft.valid_until.split('T')[0]}</div></div>
-                        </div>
-                        <button onClick={confirmContract} className="primary-btn" style={{width:'100%', background:'#10b981'}}>Zatwierdź i Dodaj do Compliance</button>
-                    </div>
-                )}
-            </div>
-        )}
-
-        {/* --- ORDERS (Z NOWYM PANELEM LOGÓW!) --- */}
-        {activeTab === 'orders' && (
-            <div style={{display:'grid', gridTemplateColumns:'2fr 1fr', gap:'20px', alignItems:'start'}}>
-                <div className="card" style={{padding:0, overflow:'hidden'}}>
-                    <div style={{padding:'20px', borderBottom:'1px solid #e2e8f0', display:'flex', justifyContent:'space-between', alignItems:'center'}}>
-                        <h3>Wszystkie Zamówienia</h3>
-                        <button onClick={fetchOrders} style={{background:'transparent', border:'none', cursor:'pointer'}}><RefreshCw size={20}/></button>
-                    </div>
-                    <table>
+                    <table className="premium-table">
                         <thead>
-                            <tr><th style={{paddingLeft:'20px'}}>ID</th><th>Produkt</th><th>Wartość</th><th>Status</th><th style={{textAlign:'right', paddingRight:'20px'}}>Szczegóły</th></tr>
+                            <tr>
+                                <th>PRODUKT</th>
+                                <th>ZAPAS</th>
+                                <th>W DRODZE</th>
+                                <th>EST. DOSTAWA</th> {/* NOWA KOLUMNA */}
+                                <th>DNI ZAPASU</th>
+                                <th>REKOMENDACJA AI</th>
+                                <th>STATUS</th>
+                                <th>AKCJA</th>
+                            </tr>
                         </thead>
                         <tbody>
-                            {orders.map(o => (
-                                <tr key={o.id} onClick={() => setSelectedOrder(o)} style={{cursor:'pointer', borderBottom:'1px solid #f1f5f9', background: o.status === 'pending_approval' ? '#fff7ed' : 'white'}}>
-                                    <td style={{padding:'16px 20px', fontFamily:'monospace', fontWeight:'600'}}>
-                                        {o.id} {o.id.startsWith('AUTO') && <span style={{fontSize:'0.7rem', color:'#3b82f6'}}>🤖 BOT</span>}
+                            {predictions.map(p => (
+                                <tr key={p.id} className="row-hover">
+                                    <td style={{fontWeight:700}}>{p.product_name}</td>
+                                    <td>{p.current_stock}</td>
+                                    <td style={{color:'#6366f1', fontWeight:800}}>{p.incoming_stock > 0 ? `+${p.incoming_stock}` : '-'}</td>
+                                    {/* WYŚWIETLANIE DATY DOSTAWY */}
+                                    <td style={{fontSize:'0.85rem', color:'#64748b'}}>
+                                        {p.next_delivery_date ? (
+                                            <div style={{display:'flex', alignItems:'center', gap:'6px', color:'#4f46e5', fontWeight:600}}>
+                                                <Truck size={14}/> {p.next_delivery_date}
+                                            </div>
+                                        ) : '---'}
                                     </td>
-                                    <td>{o.product?.name}</td>
-                                    <td>{o.total_price.toFixed(2)} PLN</td>
-                                    <td>
-                                        {o.status === 'pending_approval' && <span className="status-badge" style={{background:'#ffedd5', color:'#c2410c'}}>⏳ Akceptacja</span>}
-                                        {o.status === 'ordered' && <span className="status-badge" style={{background:'#e0f2fe', color:'#0369a1'}}>📦 Złożono</span>}
-                                        {o.status === 'delivered' && <span className="status-badge" style={{background:'#dcfce7', color:'#15803d'}}>✅ Dostarczono</span>}
-                                        {o.status === 'cancelled' && <span className="status-badge" style={{background:'#fee2e2', color:'#b91c1c'}}>❌ Odrzucono</span>}
-                                    </td>
-                                    <td style={{textAlign:'right', paddingRight:'20px'}}>
-                                        <Info size={18} color="#94a3b8"/>
-                                    </td>
+                                    <td className="days-td"><div className={`days-badge ${p.days_left < 4 ? 'critical' : ''}`}>{p.days_left} d</div></td>
+                                    <td className="advice-td" style={{fontSize:'0.75rem', fontStyle:'italic', color:'#6366f1'}}>{p.ai_supplier_advice}</td>
+                                    <td><span className={`status-pill-big ${p.status}`}>{p.status.toUpperCase()}</span></td>
+                                    <td>{p.restock_recommended && <button onClick={() => handleOrder(p)} className="action-btn-small">Zamów</button>}</td>
                                 </tr>
                             ))}
                         </tbody>
                     </table>
                 </div>
+            )}
 
-                {/* --- LIVE EVENT FEED (NOWOŚĆ) --- */}
-                <div className="card" style={{padding:'0', maxHeight:'600px', display:'flex', flexDirection:'column', background:'#1e293b', color:'white', border:'none'}}>
-                    <div style={{padding:'15px', borderBottom:'1px solid #334155', display:'flex', alignItems:'center', gap:'10px'}}>
-                        <Terminal size={20} color="#4ade80"/>
-                        <h3 style={{margin:0, color:'white', fontSize:'1rem'}}>Dziennik Zdarzeń (Live)</h3>
+            {/* MONITORING LOGISTYKI */}
+            {activeTab === 'orders' && (
+                <div className="card table-view view-fade" style={{padding:0, overflow:'hidden'}}>
+                    <div className="table-header-premium">
+                        <div className="title-group"><h3>Monitorowanie Zamówień</h3><p>Status dostaw i strategii sourcingowych</p></div>
+                        <button onClick={fetchOrders} className="icon-btn"><RefreshCw size={18}/></button>
                     </div>
-                    <div style={{padding:'15px', overflowY:'auto', flex:1, fontFamily:'monospace', fontSize:'0.85rem'}}>
-                        {simulationStatus?.events && simulationStatus.events.length > 0 ? (
-                            simulationStatus.events.map((ev) => (
-                                <div key={ev.id} style={{marginBottom:'10px', paddingBottom:'10px', borderBottom:'1px dashed #334155'}}>
-                                    <div style={{color:'#94a3b8', fontSize:'0.75rem', marginBottom:'2px'}}>[{ev.date}]</div>
-                                    <div style={{display:'flex', gap:'8px', alignItems:'start'}}>
-                                        <span>{ev.icon}</span>
-                                        <span style={{color: ev.type === 'warning' ? '#fca5a5' : ev.type === 'error' ? '#ef4444' : '#e2e8f0'}}>
-                                            {ev.message}
-                                        </span>
-                                    </div>
-                                </div>
-                            ))
-                        ) : (
-                            <div style={{color:'#64748b', textAlign:'center', marginTop:'20px'}}>Oczekiwanie na zdarzenia...<br/>(Włącz symulację)</div>
-                        )}
+                    <table className="premium-table">
+                        <thead>
+                            <tr><th>ID DOKUMENTU</th><th>STRATEGIA AI</th><th>PRODUKT</th><th>WARTOŚĆ</th><th>ESTYMACJA DOSTAWY</th><th>STATUS</th></tr>
+                        </thead>
+                        <tbody>
+                            {orders.map(o => (
+                                <tr key={o.id} onClick={() => setSelectedOrder(o)} className="row-hover">
+                                    <td className="id-cell">{o.id}</td>
+                                    <td><span className={`strat-tag ${o.order_type === 'KOSZT' ? 'cost' : 'risk'}`}>{o.order_type || 'KOSZT'}</span></td>
+                                    <td className="p-name-cell">{o.product?.name}</td>
+                                    <td className="val-cell">{o.total_price.toFixed(2)} PLN</td>
+                                    <td>{o.estimated_delivery?.split('T')[0]}</td>
+                                    <td><span className={`status-pill-big ${o.status}`}>{o.status === 'ordered' ? 'W DRODZE' : o.status.toUpperCase()}</span></td>
+                                </tr>
+                            ))}
+                        </tbody>
+                    </table>
+                </div>
+            )}
+
+            {/* SMART WALLET */}
+            {activeTab === 'contracts' && analyticsData && (
+                <div className="view-fade">
+                    <div className="wallet-card card">
+                        <div className="wallet-main">
+                            <div className="wallet-icon"><Wallet size={40} color="#fff"/></div>
+                            <div className="wallet-balance">
+                                <span>DOSTĘPNY BUDŻET OPERACYJNY</span>
+                                <h1>{analyticsData.wallet.available_funds.toLocaleString()} PLN</h1>
+                            </div>
+                        </div>
+                        <div className="wallet-progress">
+                            <div className="progress-info">
+                                <span>Wykorzystanie limitu: {analyticsData.wallet.spent_percent}%</span>
+                                <span>Limit: {analyticsData.wallet.total_budget.toLocaleString()} PLN</span>
+                            </div>
+                            <div className="progress-track"><div className="progress-fill" style={{width: `${analyticsData.wallet.spent_percent}%`}}></div></div>
+                        </div>
+                    </div>
+                    <div className="card ocr-section" style={{marginTop:'30px', textAlign:'center', padding:'60px', border:'2px dashed #e2e8f0'}}>
+                        <Upload size={40} color="#6366f1" style={{margin:'0 auto 20px'}}/>
+                        <h3>Import Dokumentów AI</h3>
+                        <p style={{color:'#64748b'}}>Przeciągnij plik PDF kontraktu, aby automatycznie zaktualizować bazy cennikowe.</p>
                     </div>
                 </div>
-            </div>
-        )}
+            )}
 
-       
-        {activeTab === 'analytics' && (
-            <div>
-                <div style={{display:'flex', justifyContent:'space-between', alignItems:'center', marginBottom:'30px'}}>
-                    <h3>Centrum Analityczne AI</h3>
-                    <button onClick={downloadReport} className="primary-btn" style={{display:'flex', alignItems:'center', gap:'8px'}}><Download size={18}/> Eksportuj PDF</button>
+            {/* WHAT-IF RYKO */}
+            {activeTab === 'scenarios' && (
+                <div className="view-fade">
+                    <div className="control-panel card">
+                        <div className="slider-box">
+                            <label>Opóźnienie Logistyczne: <strong>{delayDays} dni</strong></label>
+                            <input type="range" min="0" max="14" value={delayDays} onChange={e=>setDelayDays(e.target.value)} />
+                        </div>
+                        <div className="slider-box">
+                            <label>Szok Popytowy: <strong>+{demandSpike}%</strong></label>
+                            <input type="range" min="0" max="100" value={demandSpike} onChange={e=>setDemandSpike(e.target.value)} />
+                        </div>
+                    </div>
+                    <div className="card scenario-chart" style={{marginTop:'25px'}}>
+                        <h4>Symulacja Wpływu na Zapas (Model Monte Carlo Lite)</h4>
+                        <ResponsiveContainer width="100%" height={450}>
+                            <AreaChart data={scenarios}>
+                                <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#f1f5f9"/>
+                                <XAxis dataKey="day" fontSize={11}/><YAxis fontSize={11}/><Tooltip/>
+                                <Area type="monotone" dataKey="baseline" stroke="#94a3b8" fill="#f8fafc" strokeDasharray="5 5" name="Stan Normalny"/>
+                                <Area type="monotone" dataKey="stock" stroke="#a855f7" fill="#f3e8ff" name="Prognoza Scenariusza" strokeWidth={3}/>
+                                <Legend verticalAlign="top" align="right"/>
+                            </AreaChart>
+                        </ResponsiveContainer>
+                    </div>
                 </div>
-                
-                {!analyticsData ? (
-                    <div style={{textAlign:'center', padding:'40px', color:'#94a3b8'}}>Ładowanie danych BI...</div>
-                ) : (
-                    <>
-                        {/* KPI CARDS */}
-                        <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mb-8">
-                            <div className="card" style={{borderLeft:'4px solid #10b981'}}>
-                                <div style={{display:'flex', justifyContent:'space-between', alignItems:'start'}}>
-                                    <div>
-                                        <p style={{fontSize:'0.85rem', color:'#64748b', fontWeight:'600'}}>Zrealizowane Wydatki</p>
-                                        <p style={{fontSize:'1.8rem', fontWeight:'bold', margin:'5px 0'}}>
-                                            {analyticsData.security.approved_value.toLocaleString()} PLN
-                                        </p>
-                                    </div>
-                                    <div style={{background:'#dcfce7', padding:'8px', borderRadius:'8px'}}>
-                                        <DollarSign size={24} color="#15803d"/>
-                                    </div>
+            )}
+
+            {/* MARKETPLACE AI */}
+            {activeTab === 'market' && (
+                <div className="market-view view-fade">
+                    <div className="market-search card">
+                        <Search size={20} color="#94a3b8"/>
+                        <input type="text" placeholder="Szukaj produktów (Semantic AI Search)..." onChange={e => fetchProducts(e.target.value)} />
+                    </div>
+                    <div className="product-grid">
+                        {products.map(p => (
+                            <div key={p.id} className="product-tile">
+                                <div className="tile-head"><h4>{p.name}</h4><span className="cat-tag">{p.category}</span></div>
+                                <div className="tile-body">
+                                    <div className="info-line"><span>Cena katalogowa</span><strong>{p.unit_cost.toFixed(2)} PLN</strong></div>
+                                    <div className="info-line"><span>Stan magazynu</span><strong style={{color: p.current_stock < 10 ? '#ef4444' : '#10b981'}}>{p.current_stock} {p.unit}</strong></div>
                                 </div>
+                                <button onClick={() => handleOrder(p)} className="buy-btn">Złóż Zamówienie</button>
                             </div>
+                        ))}
+                    </div>
+                </div>
+            )}
 
-                            <div className="card" style={{borderLeft:'4px solid #ef4444'}}>
-                                <div style={{display:'flex', justifyContent:'space-between', alignItems:'start'}}>
-                                    <div>
-                                        <p style={{fontSize:'0.85rem', color:'#64748b', fontWeight:'600'}}>Oszczędność (Cost Avoidance)</p>
-                                        <p style={{fontSize:'1.8rem', fontWeight:'bold', margin:'5px 0', color:'#dc2626'}}>
-                                            {analyticsData.security.blocked_value.toLocaleString()} PLN
-                                        </p>
-                                        <p style={{fontSize:'0.75rem', color:'#ef4444'}}>
-                                            AI zablokowało {analyticsData.security.fraud_rate}% transakcji
-                                        </p>
-                                    </div>
-                                    <div style={{background:'#fee2e2', padding:'8px', borderRadius:'8px'}}>
-                                        <Shield size={24} color="#b91c1c"/>
-                                    </div>
-                                </div>
-                            </div>
-
-                            <div className="card" style={{borderLeft:'4px solid #3b82f6'}}>
-                                <div style={{display:'flex', justifyContent:'space-between', alignItems:'start'}}>
-                                    <div>
-                                        <p style={{fontSize:'0.85rem', color:'#64748b', fontWeight:'600'}}>Wartość Magazynu</p>
-                                        <p style={{fontSize:'1.8rem', fontWeight:'bold', margin:'5px 0'}}>
-                                            {analyticsData.inventory.reduce((acc, curr) => acc + curr.value, 0).toLocaleString()} PLN
-                                        </p>
-                                    </div>
-                                    <div style={{background:'#dbeafe', padding:'8px', borderRadius:'8px'}}>
-                                        <TrendingUp size={24} color="#1d4ed8"/>
-                                    </div>
-                                </div>
-                            </div>
-                        </div>
-
-                        <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-                            {/* Wykres Bezpieczeństwa */}
-                            <div className="card" style={{height:'400px'}}>
-                                <h4 style={{marginTop:0}}>Skuteczność AI Auditora (Isolation Forest)</h4>
-                                <ResponsiveContainer width="100%" height="100%">
-                                    <BarChart data={[
-                                        { name: 'Zatwierdzone', value: analyticsData.security.approved_value, fill: '#10B981' },
-                                        { name: 'Zablokowane', value: analyticsData.security.blocked_value, fill: '#EF4444' }
-                                    ]}>
-                                        <CartesianGrid strokeDasharray="3 3" vertical={false} />
-                                        <XAxis dataKey="name" />
-                                        <YAxis />
-                                        <Tooltip formatter={(value) => `${value.toLocaleString()} PLN`} />
-                                        <Bar dataKey="value" radius={[4, 4, 0, 0]} barSize={60} />
-                                    </BarChart>
-                                </ResponsiveContainer>
-                            </div>
-
-                            {/* Wykres Magazynu */}
-                            <div className="card" style={{height:'400px'}}>
-                                <h4 style={{marginTop:0}}>Top Produkty Zamrażające Kapitał</h4>
-                                <ResponsiveContainer width="100%" height="100%">
-                                    <BarChart layout="vertical" data={analyticsData.inventory} margin={{ left: 20 }}>
-                                        <CartesianGrid strokeDasharray="3 3" horizontal={false} />
-                                        <XAxis type="number" hide />
-                                        <YAxis dataKey="name" type="category" width={100} style={{ fontSize: '11px' }} />
-                                        <Tooltip formatter={(value) => `${value.toLocaleString()} PLN`} />
-                                        <Bar dataKey="value" fill="#3B82F6" radius={[0, 4, 4, 0]} barSize={20} />
-                                    </BarChart>
-                                </ResponsiveContainer>
-                            </div>
-                        </div>
-
-                        {/* Stare wykresy historyczne */}
-                        <div className="grid grid-cols-1 gap-6 mt-6">
-                            <div className="card" style={{height:'350px'}}>
-                                <h4 style={{marginTop:0}}>Dynamika Zapasów (Historyczna)</h4>
-                                <ResponsiveContainer>
-                                    <AreaChart data={history}>
-                                        <defs>
-                                            <linearGradient id="colorTotal" x1="0" y1="0" x2="0" y2="1">
-                                                <stop offset="5%" stopColor="#4f46e5" stopOpacity={0.8}/>
-                                                <stop offset="95%" stopColor="#4f46e5" stopOpacity={0}/>
-                                            </linearGradient>
-                                        </defs>
-                                        <CartesianGrid strokeDasharray="3 3" vertical={false}/>
-                                        <XAxis dataKey="shortDate" fontSize={12}/>
-                                        <YAxis fontSize={12}/>
-                                        <Tooltip/>
-                                        <Area type="monotone" dataKey="total_items" stroke="#4f46e5" fillOpacity={1} fill="url(#colorTotal)"/>
-                                    </AreaChart>
-                                </ResponsiveContainer>
-                            </div>
-                        </div>
-                    </>
-                )}
-            </div>
-        )}
-
+        </div>
       </div>
+
+      {/* MODAL SZCZEGÓŁÓW */}
+      {selectedOrder && (
+          <div className="modal-backdrop">
+              <div className="modal-container animate-scale">
+                  <div className="modal-top">
+                    <h3>DOKUMENT: {selectedOrder.id}</h3>
+                    <X className="close-icon" onClick={() => setSelectedOrder(null)}/>
+                  </div>
+                  <div className="modal-content-area">
+                      <div className="proforma-box">
+                          <div className="box-header">SYMULACJA FAKTURY PROFORMA</div>
+                          <div className="box-line"><span>Produkt:</span> <strong>{selectedOrder.product?.name}</strong></div>
+                          <div className="box-line"><span>Wartość Netto:</span> <span>{calculateInvoice(selectedOrder).net.toFixed(2)} PLN</span></div>
+                          <div className="box-total"><span>BRUTTO:</span> <span>{calculateInvoice(selectedOrder).gross.toFixed(2)} PLN</span></div>
+                      </div>
+                      <div className="compliance-msg"><ShieldCheck size={18}/> Weryfikacja AI: Zgodność z budżetem Smart Wallet.</div>
+                  </div>
+              </div>
+          </div>
+      )}
+
+      {/* CHAT AI */}
+      <div className={`chat-bubble-widget ${isChatOpen ? 'expanded' : ''}`}>
+          {isChatOpen ? (
+              <div className="chat-window card">
+                  <div className="chat-header-bar"><span>Asystent ProcureBot AI</span><X size={18} onClick={() => setIsChatOpen(false)}/></div>
+                  <div className="chat-content">
+                      {chatMessages.map((m, i) => (<div key={i} className={`msg-row ${m.from}`}><div className="bubble">{m.text}</div></div>))}
+                      <div ref={chatEndRef}/>
+                  </div>
+                  <form onSubmit={handleSendMessage} className="chat-input-row">
+                      <input value={chatInput} onChange={e => setChatInput(e.target.value)} placeholder="Zadaj pytanie..."/>
+                      <button type="submit"><Send size={16}/></button>
+                  </form>
+              </div>
+          ) : (
+              <button className="chat-trigger" onClick={() => setIsChatOpen(true)}>
+                  <MessageSquare size={28}/>
+                  <div className="pulse"></div>
+              </button>
+          )}
+      </div>
+
+      <style>{`
+        @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&family=JetBrains+Mono:wght@700&display=swap');
+        
+        :root { --primary: #6366f1; --primary-dark: #4f46e5; --bg: #f8fafc; --sidebar: #0f172a; --card: #ffffff; --text: #1e293b; --text-muted: #64748b; }
+
+        .app-layout { display: flex; height: 100vh; background: var(--bg); font-family: 'Inter', sans-serif; color: var(--text); overflow: hidden; }
+        .sidebar { width: 280px; background: var(--sidebar); color: white; padding: 30px; display: flex; flex-direction: column; }
+        .logo-area { display: flex; align-items: center; gap: 15px; margin-bottom: 50px; }
+        .logo-box { background: var(--primary); padding: 10px; border-radius: 12px; }
+        .logo-title { font-weight: 900; font-size: 1.3rem; letter-spacing: -0.5px; display: block; }
+        .logo-tag { font-size: 0.65rem; color: #94a3b8; font-weight: 700; text-transform: uppercase; }
+        .nav-group-label { font-size: 0.65rem; color: #475569; font-weight: 800; letter-spacing: 1.5px; margin-bottom: 12px; }
+        .nav-item { width: 100%; display: flex; align-items: center; gap: 14px; padding: 14px; background: transparent; border: none; color: #94a3b8; border-radius: 12px; cursor: pointer; font-size: 0.95rem; margin-bottom: 5px; text-align: left; transition: 0.3s; }
+        .nav-item:hover, .nav-item.active { background: #1e293b; color: white; }
+        .nav-item.active { background: var(--primary) !important; box-shadow: 0 10px 15px -3px rgba(99, 102, 241, 0.3); }
+        .main-viewport { flex: 1; display: flex; flex-direction: column; overflow: hidden; }
+        .top-header { padding: 30px 40px; display: flex; justify-content: space-between; align-items: center; border-bottom: 1px solid #e2e8f0; }
+        .simulation-widget { display: flex; align-items: center; gap: 25px; background: white; padding: 12px 25px; border-radius: 60px; border: 1px solid #e2e8f0; }
+        .sim-time .val { font-family: 'JetBrains Mono', monospace; font-weight: 700; color: var(--primary); }
+        .sim-action { border: none; padding: 10px 20px; border-radius: 30px; cursor: pointer; display: flex; align-items: center; gap: 8px; font-weight: 800; }
+        .sim-action.start { background: #dcfce7; color: #16a34a; }
+        .sim-action.stop { background: #fee2e2; color: #dc2626; }
+        .content-scroll { flex: 1; overflow-y: auto; padding: 40px; }
+        .kpi-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 25px; margin-bottom: 35px; }
+        .kpi-tile { background: white; padding: 30px; border-radius: 24px; border: 1px solid #e2e8f0; display: flex; align-items: center; gap: 20px; }
+        .kpi-icon { width: 55px; height: 55px; border-radius: 16px; display: flex; align-items: center; justify-content: center; color: white; }
+        .gradient-blue .kpi-icon { background: linear-gradient(135deg, #6366f1, #4f46e5); }
+        .gradient-red .kpi-icon { background: linear-gradient(135deg, #f43f5e, #e11d48); }
+        .gradient-green .kpi-icon { background: linear-gradient(135deg, #10b981, #059669); }
+        .card { background: white; border-radius: 24px; border: 1px solid #e2e8f0; padding: 30px; }
+        .premium-table { width: 100%; border-collapse: collapse; }
+        .premium-table th { text-align: left; padding: 20px; background: #f8fafc; color: var(--text-muted); font-size: 0.75rem; font-weight: 800; text-transform: uppercase; }
+        .premium-table td { padding: 20px; border-bottom: 1px solid #f1f5f9; font-size: 0.95rem; }
+        .status-pill-big { padding: 6px 14px; border-radius: 30px; font-size: 0.7rem; font-weight: 900; }
+        .status-pill-big.safe { background: #dcfce7; color: #15803d; }
+        .status-pill-big.warning { background: #fef3c7; color: #b45309; }
+        .status-pill-big.critical { background: #fee2e2; color: #be123c; }
+        .days-badge { background: #f1f5f9; padding: 6px 12px; border-radius: 8px; font-weight: 800; width: fit-content; }
+        .days-badge.critical { background: #fee2e2; color: #dc2626; }
+        .wallet-card { background: var(--sidebar); color: white; }
+        .progress-track { height: 12px; background: #1e293b; border-radius: 10px; margin-top: 15px; }
+        .progress-fill { height: 100%; background: var(--primary); border-radius: 10px; transition: 1s; }
+        .action-btn-small { padding: 8px 16px; background: var(--sidebar); color: white; border: none; border-radius: 8px; cursor: pointer; font-weight: 700; }
+        .product-tile { background: white; padding: 25px; border-radius: 24px; border: 1px solid #e2e8f0; }
+        .buy-btn { width: 100%; padding: 12px; border-radius: 12px; border: none; background: var(--sidebar); color: white; font-weight: 700; cursor: pointer; margin-top: 15px; }
+        .chat-bubble-widget { position: fixed; bottom: 30px; right: 30px; z-index: 1000; }
+        .chat-trigger { width: 65px; height: 65px; border-radius: 50%; background: var(--primary); color: white; border: none; cursor: pointer; box-shadow: 0 10px 25px rgba(0,0,0,0.1); position: relative; }
+        .chat-window { width: 380px; height: 550px; display: flex; flex-direction: column; overflow: hidden; box-shadow: 0 20px 40px rgba(0,0,0,0.2); }
+        .chat-header-bar { background: var(--primary); color: white; padding: 15px 20px; font-weight: 800; display: flex; justify-content: space-between; }
+        .bubble { padding: 12px 16px; border-radius: 18px; font-size: 0.9rem; max-width: 85%; box-shadow: 0 2px 5px rgba(0,0,0,0.05); }
+        .msg-row.bot .bubble { background: white; border: 1px solid #e2e8f0; align-self: flex-start; }
+        .msg-row.user .bubble { background: var(--primary); color: white; align-self: flex-end; }
+        .chat-content { flex: 1; padding: 20px; overflow-y: auto; display: flex; flex-direction: column; gap: 15px; }
+        .chat-input-row { padding: 15px; border-top: 1px solid #e2e8f0; display: flex; gap: 10px; }
+        .chat-input-row input { flex: 1; border: 1px solid #e2e8f0; border-radius: 20px; padding: 10px 15px; }
+        .animate-scale { animation: scaleIn 0.3s ease; }
+        @keyframes scaleIn { from { transform: scale(0.9); opacity: 0; } to { transform: scale(1); opacity: 1; } }
+      `}</style>
+
     </div>
   )
 }
