@@ -8,7 +8,7 @@ import {
     Repeat, MessageSquare, Send, Settings, Activity, Terminal, 
     Shield, DollarSign, Zap, ShieldAlert, PieChart as PieIcon,
     AlertTriangle, ArrowRight, Layers, Gavel, Wallet, Eye, 
-    Truck, BarChart as BarIcon, Briefcase
+    Truck, BarChart as BarIcon, Briefcase, Handshake, BrainCircuit
 } from 'lucide-react'
 import { 
     AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip, 
@@ -39,6 +39,7 @@ function App() {
   const [searchQuery, setSearchQuery] = useState("")
   const [selectedFile, setSelectedFile] = useState(null)
   const [selectedOrder, setSelectedOrder] = useState(null)
+  const [selectedIntervention, setSelectedIntervention] = useState(null) // NOWY STAN DLA XAI
   const [showLowStockOnly, setShowLowStockOnly] = useState(false)
 
   const API_URL = 'http://127.0.0.1:8000'
@@ -98,7 +99,7 @@ function App() {
             <div className="logo-box"><Zap size={24} color="#fff" fill="#fff"/></div>
             <div>
                 <span className="logo-title">Procurement Pro</span>
-                <span className="logo-tag">v5.2.5 AI Enterprise</span>
+                <span className="logo-tag">v5.3.0 AI Enterprise</span>
             </div>
         </div>
 
@@ -166,7 +167,43 @@ function App() {
                             <div className="kpi-icon"><Activity/></div>
                             <div className="kpi-info"><span>Efektywność JIT</span><h3>{100 - analyticsData.security.fraud_rate}%</h3></div>
                         </div>
+                        <div className="kpi-tile gradient-orange">
+                            <div className="kpi-icon"><Zap/></div>
+                            <div className="kpi-info">
+                                <span>Koszty Interwencyjne</span>
+                                <h3>{analyticsData.emergency_premium_cost?.toLocaleString() || 0} PLN</h3>
+                                <span style={{fontSize:'0.75rem', color:'#d97706', fontWeight:600}}>{analyticsData.emergency_count || 0} akcji ratunkowych</span>
+                            </div>
+                        </div>
                     </div>
+
+                    {/* REKOMENDACJE RENEGOCJACJI */}
+                    {analyticsData.ai_negotiations && analyticsData.ai_negotiations.length > 0 && (
+                        <div className="card" style={{marginBottom: '25px', border: '2px solid #c084fc', background: '#faf5ff'}}>
+                            <div style={{display:'flex', alignItems:'center', gap:'10px', color:'#7e22ce', marginBottom:'15px'}}>
+                                <Handshake size={24} />
+                                <h3 style={{margin:0}}>Sygnały Renegocjacji Kontraktów (Analiza Trendów AI - 30 dni)</h3>
+                            </div>
+                            <div style={{display:'grid', gridTemplateColumns:'repeat(auto-fit, minmax(300px, 1fr))', gap:'20px'}}>
+                                {analyticsData.ai_negotiations.map((neg, idx) => (
+                                    <div key={idx} style={{background:'white', padding:'20px', borderRadius:'16px', border:'1px solid #e9d5ff', boxShadow:'0 4px 6px -1px rgba(0, 0, 0, 0.05)'}}>
+                                        <div style={{display:'flex', justifyContent:'space-between', alignItems:'center', marginBottom:'10px'}}>
+                                            <strong style={{fontSize:'1.1rem', color:'#4c1d95'}}>{neg.product_name}</strong>
+                                            <span style={{background:'#dcfce7', color:'#166534', padding:'4px 10px', borderRadius:'20px', fontSize:'0.8rem', fontWeight:'bold'}}>
+                                                +{neg.growth_percent}% Popytu
+                                            </span>
+                                        </div>
+                                        <p style={{fontSize:'0.9rem', color:'#6b7280', margin:'0 0 10px 0', fontStyle:'italic'}}>
+                                            Wolumen za ost. 30 dni: {neg.recent_volume} szt.
+                                        </p>
+                                        <div style={{background:'#f3e8ff', padding:'12px', borderRadius:'8px', fontSize:'0.9rem', color:'#6b21a8', fontWeight:'500'}}>
+                                            {neg.suggestion}
+                                        </div>
+                                    </div>
+                                ))}
+                            </div>
+                        </div>
+                    )}
 
                     <div className="chart-section">
                         <div className="main-chart card">
@@ -222,10 +259,58 @@ function App() {
                             </AreaChart>
                         </ResponsiveContainer>
                     </div>
+
+                    {/* DZIENNIK INTERWENCJI STRATEGICZNYCH AI */}
+                    <div className="card interventions-card" style={{marginTop:'25px', overflow:'hidden', padding:'0'}}>
+                        <div style={{padding:'20px', background:'#f8fafc', borderBottom:'1px solid #e2e8f0', display:'flex', justifyContent:'space-between', alignItems:'center'}}>
+                            <div>
+                                <h4 style={{margin:0, display:'flex', alignItems:'center', gap:'10px'}}>
+                                    <ShieldCheck size={20} color="#10b981"/> 
+                                    Dziennik Interwencji Strategicznych AI
+                                </h4>
+                                <p style={{margin:'4px 0 0 0', fontSize:'0.85rem', color:'#64748b'}}>Rejestr autonomicznych decyzji ratunkowych i blokad oszustw. Kliknij wiersz, aby zobaczyć wyjaśnienie AI.</p>
+                            </div>
+                        </div>
+                        <div style={{overflowX: 'auto'}}>
+                            <table className="premium-table interactive-table" style={{margin:0}}>
+                                <thead>
+                                    <tr>
+                                        <th>DATA SYSTEMOWA</th>
+                                        <th>ID ZDARZENIA</th>
+                                        <th>TYP REAKCJI</th>
+                                        <th>CEL (PRODUKT)</th>
+                                        <th style={{textAlign: 'right'}}>SKUTEK</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    {analyticsData.ai_interventions && analyticsData.ai_interventions.length > 0 ? (
+                                        analyticsData.ai_interventions.map((inv, i) => (
+                                            <tr key={i} className="row-hover" onClick={() => setSelectedIntervention(inv)}>
+                                                <td style={{color:'#64748b', fontSize:'0.85rem'}}>{inv.date}</td>
+                                                <td style={{fontFamily:'monospace', fontWeight:'bold'}}>{inv.id}</td>
+                                                <td>
+                                                    <span className={`status-pill-big ${inv.color === 'red' ? 'critical' : 'safe'}`} style={{background: inv.color === 'red' ? '#fee2e2' : '#dbeafe', color: inv.color === 'red' ? '#be123c' : '#1d4ed8', cursor:'pointer'}}>
+                                                        {inv.type}
+                                                    </span>
+                                                </td>
+                                                <td style={{fontWeight:600}}>{inv.product}</td>
+                                                <td style={{textAlign: 'right', fontWeight:700, color: inv.color === 'red' ? '#dc2626' : '#059669'}}>
+                                                    {inv.impact}
+                                                </td>
+                                            </tr>
+                                        ))
+                                    ) : (
+                                        <tr><td colSpan="5" style={{textAlign:'center', color:'#94a3b8', padding:'30px'}}>Brak krytycznych interwencji w obecnej sesji.</td></tr>
+                                    )}
+                                </tbody>
+                            </table>
+                        </div>
+                    </div>
+
                 </div>
             )}
 
-            {/* MAGAZYN MRP (Z POPRAWIONĄ DATĄ) */}
+            {/* MAGAZYN MRP */}
             {activeTab === 'forecast' && (
                 <div className="card table-view view-fade" style={{padding:0, overflow:'hidden'}}>
                     <div className="table-header-premium">
@@ -240,7 +325,7 @@ function App() {
                                 <th>PRODUKT</th>
                                 <th>ZAPAS</th>
                                 <th>W DRODZE</th>
-                                <th>EST. DOSTAWA</th> {/* NOWA KOLUMNA */}
+                                <th>EST. DOSTAWA</th>
                                 <th>DNI ZAPASU</th>
                                 <th>REKOMENDACJA AI</th>
                                 <th>STATUS</th>
@@ -253,7 +338,6 @@ function App() {
                                     <td style={{fontWeight:700}}>{p.product_name}</td>
                                     <td>{p.current_stock}</td>
                                     <td style={{color:'#6366f1', fontWeight:800}}>{p.incoming_stock > 0 ? `+${p.incoming_stock}` : '-'}</td>
-                                    {/* WYŚWIETLANIE DATY DOSTAWY */}
                                     <td style={{fontSize:'0.85rem', color:'#64748b'}}>
                                         {p.next_delivery_date ? (
                                             <div style={{display:'flex', alignItems:'center', gap:'6px', color:'#4f46e5', fontWeight:600}}>
@@ -285,7 +369,7 @@ function App() {
                         </thead>
                         <tbody>
                             {orders.map(o => (
-                                <tr key={o.id} onClick={() => setSelectedOrder(o)} className="row-hover">
+                                <tr key={o.id} onClick={() => setSelectedOrder(o)} className="row-hover interactive-table">
                                     <td className="id-cell">{o.id}</td>
                                     <td><span className={`strat-tag ${o.order_type === 'KOSZT' ? 'cost' : 'risk'}`}>{o.order_type || 'KOSZT'}</span></td>
                                     <td className="p-name-cell">{o.product?.name}</td>
@@ -379,7 +463,7 @@ function App() {
         </div>
       </div>
 
-      {/* MODAL SZCZEGÓŁÓW */}
+      {/* MODAL SZCZEGÓŁÓW ZAMÓWIENIA */}
       {selectedOrder && (
           <div className="modal-backdrop">
               <div className="modal-container animate-scale">
@@ -400,11 +484,54 @@ function App() {
           </div>
       )}
 
+      {/* MODAL EXPLAINABLE AI (XAI) DLA INTERWENCJI */}
+      {selectedIntervention && (
+          <div className="modal-backdrop">
+              <div className="modal-container animate-scale xai-modal">
+                  <div className={`modal-top xai-top ${selectedIntervention.color === 'red' ? 'xai-red' : 'xai-blue'}`}>
+                    <div style={{display:'flex', alignItems:'center', gap:'12px'}}>
+                        <BrainCircuit size={28} />
+                        <div>
+                            <h3 style={{margin:0, fontSize:'1.2rem'}}>Wyjaśnienie Modelu AI (XAI)</h3>
+                            <span style={{fontSize:'0.8rem', opacity:0.8}}>ID Zdarzenia: {selectedIntervention.id}</span>
+                        </div>
+                    </div>
+                    <X className="close-icon" style={{color:'white'}} onClick={() => setSelectedIntervention(null)}/>
+                  </div>
+                  <div className="modal-content-area" style={{padding:'30px'}}>
+                      <div className="xai-detail-row">
+                          <span className="xai-label">Produkt poddany ocenie:</span>
+                          <strong className="xai-value">{selectedIntervention.product}</strong>
+                      </div>
+                      <div className="xai-detail-row">
+                          <span className="xai-label">Typ podjętej akcji:</span>
+                          <strong className="xai-value">{selectedIntervention.type}</strong>
+                      </div>
+                      <div className="xai-detail-row">
+                          <span className="xai-label">Skutek finansowy/operacyjny:</span>
+                          <strong className="xai-value" style={{color: selectedIntervention.color === 'red' ? '#dc2626' : '#059669'}}>
+                              {selectedIntervention.impact}
+                          </strong>
+                      </div>
+                      
+                      <div className="xai-reason-box">
+                          <div className="xai-reason-header">
+                              <Terminal size={16}/> Logika decyzyjna algorytmu:
+                          </div>
+                          <div className="xai-reason-text">
+                              {selectedIntervention.reason || "Brak szczegółowego uzasadnienia dla tego zdarzenia."}
+                          </div>
+                      </div>
+                  </div>
+              </div>
+          </div>
+      )}
+
       {/* CHAT AI */}
       <div className={`chat-bubble-widget ${isChatOpen ? 'expanded' : ''}`}>
           {isChatOpen ? (
               <div className="chat-window card">
-                  <div className="chat-header-bar"><span>Asystent ProcureBot AI</span><X size={18} onClick={() => setIsChatOpen(false)}/></div>
+                  <div className="chat-header-bar"><span>Asystent ProcureBot AI</span><X size={18} onClick={() => setIsChatOpen(false)} style={{cursor:'pointer'}}/></div>
                   <div className="chat-content">
                       {chatMessages.map((m, i) => (<div key={i} className={`msg-row ${m.from}`}><div className="bubble">{m.text}</div></div>))}
                       <div ref={chatEndRef}/>
@@ -423,12 +550,12 @@ function App() {
       </div>
 
       <style>{`
-        @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&family=JetBrains+Mono:wght@700&display=swap');
+        @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&family=JetBrains+Mono:wght@400;700&display=swap');
         
         :root { --primary: #6366f1; --primary-dark: #4f46e5; --bg: #f8fafc; --sidebar: #0f172a; --card: #ffffff; --text: #1e293b; --text-muted: #64748b; }
 
         .app-layout { display: flex; height: 100vh; background: var(--bg); font-family: 'Inter', sans-serif; color: var(--text); overflow: hidden; }
-        .sidebar { width: 280px; background: var(--sidebar); color: white; padding: 30px; display: flex; flex-direction: column; }
+        .sidebar { width: 280px; background: var(--sidebar); color: white; padding: 30px; display: flex; flex-direction: column; z-index:10; }
         .logo-area { display: flex; align-items: center; gap: 15px; margin-bottom: 50px; }
         .logo-box { background: var(--primary); padding: 10px; border-radius: 12px; }
         .logo-title { font-weight: 900; font-size: 1.3rem; letter-spacing: -0.5px; display: block; }
@@ -438,24 +565,28 @@ function App() {
         .nav-item:hover, .nav-item.active { background: #1e293b; color: white; }
         .nav-item.active { background: var(--primary) !important; box-shadow: 0 10px 15px -3px rgba(99, 102, 241, 0.3); }
         .main-viewport { flex: 1; display: flex; flex-direction: column; overflow: hidden; }
-        .top-header { padding: 30px 40px; display: flex; justify-content: space-between; align-items: center; border-bottom: 1px solid #e2e8f0; }
+        .top-header { padding: 30px 40px; display: flex; justify-content: space-between; align-items: center; border-bottom: 1px solid #e2e8f0; background:white; z-index:5; }
         .simulation-widget { display: flex; align-items: center; gap: 25px; background: white; padding: 12px 25px; border-radius: 60px; border: 1px solid #e2e8f0; }
         .sim-time .val { font-family: 'JetBrains Mono', monospace; font-weight: 700; color: var(--primary); }
-        .sim-action { border: none; padding: 10px 20px; border-radius: 30px; cursor: pointer; display: flex; align-items: center; gap: 8px; font-weight: 800; }
+        .sim-action { border: none; padding: 10px 20px; border-radius: 30px; cursor: pointer; display: flex; align-items: center; gap: 8px; font-weight: 800; transition:0.2s;}
+        .sim-action:hover { transform: scale(1.05); }
         .sim-action.start { background: #dcfce7; color: #16a34a; }
         .sim-action.stop { background: #fee2e2; color: #dc2626; }
         .content-scroll { flex: 1; overflow-y: auto; padding: 40px; }
-        .kpi-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 25px; margin-bottom: 35px; }
+        .kpi-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 25px; margin-bottom: 35px; }
         .kpi-tile { background: white; padding: 30px; border-radius: 24px; border: 1px solid #e2e8f0; display: flex; align-items: center; gap: 20px; }
         .kpi-icon { width: 55px; height: 55px; border-radius: 16px; display: flex; align-items: center; justify-content: center; color: white; }
         .gradient-blue .kpi-icon { background: linear-gradient(135deg, #6366f1, #4f46e5); }
         .gradient-red .kpi-icon { background: linear-gradient(135deg, #f43f5e, #e11d48); }
         .gradient-green .kpi-icon { background: linear-gradient(135deg, #10b981, #059669); }
+        .gradient-orange .kpi-icon { background: linear-gradient(135deg, #f59e0b, #d97706); }
         .card { background: white; border-radius: 24px; border: 1px solid #e2e8f0; padding: 30px; }
         .premium-table { width: 100%; border-collapse: collapse; }
         .premium-table th { text-align: left; padding: 20px; background: #f8fafc; color: var(--text-muted); font-size: 0.75rem; font-weight: 800; text-transform: uppercase; }
         .premium-table td { padding: 20px; border-bottom: 1px solid #f1f5f9; font-size: 0.95rem; }
-        .status-pill-big { padding: 6px 14px; border-radius: 30px; font-size: 0.7rem; font-weight: 900; }
+        .interactive-table tr { cursor: pointer; transition: background 0.2s; }
+        .interactive-table tr:hover { background-color: #f8fafc; }
+        .status-pill-big { padding: 6px 14px; border-radius: 30px; font-size: 0.7rem; font-weight: 900; display: inline-block;}
         .status-pill-big.safe { background: #dcfce7; color: #15803d; }
         .status-pill-big.warning { background: #fef3c7; color: #b45309; }
         .status-pill-big.critical { background: #fee2e2; color: #be123c; }
@@ -464,9 +595,39 @@ function App() {
         .wallet-card { background: var(--sidebar); color: white; }
         .progress-track { height: 12px; background: #1e293b; border-radius: 10px; margin-top: 15px; }
         .progress-fill { height: 100%; background: var(--primary); border-radius: 10px; transition: 1s; }
-        .action-btn-small { padding: 8px 16px; background: var(--sidebar); color: white; border: none; border-radius: 8px; cursor: pointer; font-weight: 700; }
+        .action-btn-small { padding: 8px 16px; background: var(--sidebar); color: white; border: none; border-radius: 8px; cursor: pointer; font-weight: 700; transition:0.2s; }
+        .action-btn-small:hover { background: var(--primary); }
         .product-tile { background: white; padding: 25px; border-radius: 24px; border: 1px solid #e2e8f0; }
-        .buy-btn { width: 100%; padding: 12px; border-radius: 12px; border: none; background: var(--sidebar); color: white; font-weight: 700; cursor: pointer; margin-top: 15px; }
+        .buy-btn { width: 100%; padding: 12px; border-radius: 12px; border: none; background: var(--sidebar); color: white; font-weight: 700; cursor: pointer; margin-top: 15px; transition:0.2s;}
+        .buy-btn:hover { background: var(--primary); }
+        
+        /* Modal Styles */
+        .modal-backdrop { position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(15, 23, 42, 0.6); backdrop-filter: blur(4px); display: flex; align-items: center; justify-content: center; z-index: 9999; }
+        .modal-container { background: white; width: 500px; border-radius: 24px; overflow: hidden; box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.25); }
+        .modal-top { background: #f8fafc; padding: 20px 30px; display: flex; justify-content: space-between; align-items: center; border-bottom: 1px solid #e2e8f0; }
+        .modal-top h3 { margin: 0; font-size: 1.1rem; color: #1e293b; }
+        .close-icon { cursor: pointer; color: #64748b; transition: 0.2s; }
+        .close-icon:hover { color: #0f172a; transform: rotate(90deg); }
+        .modal-content-area { padding: 30px; }
+        .proforma-box { border: 1px solid #e2e8f0; border-radius: 12px; padding: 20px; margin-bottom: 20px; }
+        .box-header { font-size: 0.75rem; font-weight: 800; color: #94a3b8; margin-bottom: 15px; text-transform: uppercase; }
+        .box-line { display: flex; justify-content: space-between; margin-bottom: 10px; font-size: 0.95rem; }
+        .box-total { display: flex; justify-content: space-between; margin-top: 15px; padding-top: 15px; border-top: 1px dashed #e2e8f0; font-weight: 800; font-size: 1.1rem; color: var(--primary); }
+        .compliance-msg { display: flex; align-items: center; gap: 10px; background: #f0fdf4; color: #166534; padding: 15px; border-radius: 12px; font-weight: 600; font-size: 0.9rem; }
+        
+        /* XAI Modal Specific Styles */
+        .xai-modal { width: 600px; }
+        .xai-top { color: white; border-bottom: none; }
+        .xai-top h3 { color: white; }
+        .xai-blue { background: linear-gradient(135deg, #3b82f6, #1d4ed8); }
+        .xai-red { background: linear-gradient(135deg, #ef4444, #be123c); }
+        .xai-detail-row { display: flex; justify-content: space-between; align-items: center; padding: 12px 0; border-bottom: 1px solid #f1f5f9; }
+        .xai-label { color: #64748b; font-size: 0.9rem; }
+        .xai-value { font-size: 1rem; color: #0f172a; }
+        .xai-reason-box { margin-top: 25px; background: #1e293b; border-radius: 12px; overflow: hidden; }
+        .xai-reason-header { background: #0f172a; color: #94a3b8; padding: 12px 20px; font-size: 0.8rem; font-family: 'JetBrains Mono', monospace; display: flex; align-items: center; gap: 10px; }
+        .xai-reason-text { padding: 20px; color: #e2e8f0; font-family: 'JetBrains Mono', monospace; font-size: 0.9rem; line-height: 1.6; }
+
         .chat-bubble-widget { position: fixed; bottom: 30px; right: 30px; z-index: 1000; }
         .chat-trigger { width: 65px; height: 65px; border-radius: 50%; background: var(--primary); color: white; border: none; cursor: pointer; box-shadow: 0 10px 25px rgba(0,0,0,0.1); position: relative; }
         .chat-window { width: 380px; height: 550px; display: flex; flex-direction: column; overflow: hidden; box-shadow: 0 20px 40px rgba(0,0,0,0.2); }
@@ -476,9 +637,12 @@ function App() {
         .msg-row.user .bubble { background: var(--primary); color: white; align-self: flex-end; }
         .chat-content { flex: 1; padding: 20px; overflow-y: auto; display: flex; flex-direction: column; gap: 15px; }
         .chat-input-row { padding: 15px; border-top: 1px solid #e2e8f0; display: flex; gap: 10px; }
-        .chat-input-row input { flex: 1; border: 1px solid #e2e8f0; border-radius: 20px; padding: 10px 15px; }
-        .animate-scale { animation: scaleIn 0.3s ease; }
-        @keyframes scaleIn { from { transform: scale(0.9); opacity: 0; } to { transform: scale(1); opacity: 1; } }
+        .chat-input-row input { flex: 1; border: 1px solid #e2e8f0; border-radius: 20px; padding: 10px 15px; outline:none;}
+        .chat-input-row input:focus { border-color: var(--primary); }
+        .chat-input-row button { background: var(--primary); color: white; border: none; width: 40px; height: 40px; border-radius: 50%; cursor: pointer; display: flex; align-items: center; justify-content: center; }
+        
+        .animate-scale { animation: scaleIn 0.3s cubic-bezier(0.16, 1, 0.3, 1); }
+        @keyframes scaleIn { from { transform: scale(0.95); opacity: 0; } to { transform: scale(1); opacity: 1; } }
       `}</style>
 
     </div>

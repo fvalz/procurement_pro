@@ -32,10 +32,11 @@ class Product(Base):
     name = Column(String, index=True)
     category = Column(String, index=True)
     unit_cost = Column(Float)
-    current_stock = Column(Integer, default=0)  # POPRAWKA: Integer (liczby całkowite)
+    current_stock = Column(Integer, default=0)
     description = Column(String, nullable=True)
+    unit = Column(String, default="szt.") 
     
-    # Dane do symulacji / AI
+    # Dane do symulacji / AI - Brak sztywnego min_stock_level (podejście Dynamic ROP)
     average_daily_consumption = Column(Float, default=0.0)
     lead_time_days = Column(Integer, default=7)
     
@@ -64,16 +65,21 @@ class Contract(Base):
 class Order(Base):
     __tablename__ = "orders"
 
-    id = Column(String, primary_key=True, index=True)  # Np. "ORD-2023-001"
+    id = Column(String, primary_key=True, index=True)
     product_id = Column(Integer, ForeignKey("products.id"))
     supplier_id = Column(Integer, ForeignKey("suppliers.id"))
     
-    quantity = Column(Integer)  # POPRAWKA: Integer
+    quantity = Column(Integer)
     total_price = Column(Float)
     status = Column(String, default="pending")  # pending, ordered, delivered, cancelled
-    
+    order_type = Column(String, nullable=True, default="KOSZT")
+
     created_at = Column(DateTime, default=datetime.utcnow)
-    estimated_delivery = Column(DateTime, nullable=True) # Pozwalamy na brak daty (dla bezpieczeństwa)
+    estimated_delivery = Column(DateTime, nullable=True)
+    
+    # Pole do obsługi wizualizacji opóźnień (+X dni)
+    delay_days = Column(Integer, default=0) 
+    
     payment_terms_days = Column(Integer, default=30)
 
     product = relationship("Product", back_populates="orders")
