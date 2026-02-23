@@ -82,6 +82,11 @@ class Order(Base):
     
     payment_terms_days = Column(Integer, default=30)
 
+    # --- NOWE KOLUMNY ZGODNE Z DOKUMENTACJĄ INŻYNIERSKĄ (Rozdział 3.4.1) ---
+    is_anomaly = Column(Boolean, default=False)
+    anomaly_score = Column(Float, nullable=True)
+    # -----------------------------------------------------------------------
+
     product = relationship("Product", back_populates="orders")
     supplier = relationship("Supplier", back_populates="orders")
 

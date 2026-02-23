@@ -4,14 +4,16 @@ import asyncio
 import logging
 import uuid
 import random
+import time
+from contextlib import asynccontextmanager
 from datetime import datetime, timedelta
-from typing import List, Optional, Dict
+from typing import List, Optional, Dict, Any, Generator
 
-from fastapi import FastAPI, Depends, HTTPException, BackgroundTasks, File, UploadFile, Query
-from fastapi.responses import FileResponse, JSONResponse
+from fastapi import FastAPI, Depends, HTTPException, File, UploadFile, BackgroundTasks
+from fastapi.responses import FileResponse
 from fastapi.middleware.cors import CORSMiddleware
 from sqlalchemy.orm import Session, joinedload
-from sqlalchemy import or_, func, and_, desc
+from sqlalchemy import and_, desc
 from pydantic import BaseModel 
 from fpdf import FPDF 
 
@@ -26,14 +28,59 @@ from .services.ai_search import ai_search
 from .services.contract_parser import contract_parser
 from .services.anomaly_detector import anomaly_detector
 
-logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(name)s - %(levelname)s - %(message)s')
+# Konfiguracja logowania systemowego
+logging.basicConfig(
+    level=logging.INFO, 
+    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
+)
 logger = logging.getLogger("ProcurementAPI")
+
+# --- LIFESPAN MANAGER ---
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    """
+    Zarządza cyklem życia aplikacji: inicjalizacja baz, sanacja i startup usług AI.
+    """
+    models.Base.metadata.create_all(bind=database.engine)
+    db = database.SessionLocal()
+    try:
+        logger.info("🧹 [SYSTEM] Sanacja bazy: Zamykanie przedawnionych zamówień-widm...")
+        stale_orders = db.query(models.Order).filter(
+            models.Order.status == "ordered",
+            models.Order.estimated_delivery < datetime.now()
+        ).all()
+        
+        for so in stale_orders:
+            so.status = "delivered"
+            
+        db.commit()
+        if stale_orders:
+            logger.info(f"✅ [SYSTEM] Oczyszczono {len(stale_orders)} rekordów.")
+
+        logger.info("🧠 [SYSTEM] Inicjalizacja modułów AI...")
+        products = db.query(models.Product).all()
+        if products: 
+            ai_search.index_products(products)
+        
+        simulation_task = asyncio.create_task(simulator.run_simulation_loop())
+        logger.info("✅ [SYSTEM] Startup zakończony. Symulator JIT aktywny.")
+        
+        yield 
+        
+        simulation_task.cancel()
+        logger.info("🛑 [SYSTEM] Wyłączanie usług...")
+    except Exception as e:
+        logger.error(f"❌ [CRITICAL] Błąd startupu: {e}")
+        db.rollback()
+    finally:
+        db.close()
 
 app = FastAPI(
     title="Procurement Pro ERP - Intelligent Sourcing System",
     description="Zaawansowany system ERP z modułami AI i Digital Twin.",
     version="5.6.3",
-    docs_url="/docs"
+    docs_url="/docs",
+    lifespan=lifespan
 )
 
 app.add_middleware(
@@ -44,58 +91,27 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-def get_db():
-    db = database.SessionLocal()
-    try: yield db
-    finally: db.close()
-
-# --- MODUŁ INICJALIZACJI I SANACJI ---
-@app.on_event("startup")
-async def startup_event():
-    models.Base.metadata.create_all(bind=database.engine)
+def get_db() -> Generator[Session, None, None]:
     db = database.SessionLocal()
     try:
-        # --- NOWOŚĆ: SANACJA BAZY (Sprzątanie Ghost Deliveries) ---
-        logger.info("🧹 [SYSTEM] Sanacja bazy: Zamykanie przedawnionych zamówień-widm...")
-        stale_orders = db.query(models.Order).filter(
-            models.Order.status == "ordered",
-            models.Order.estimated_delivery < datetime.now()
-        ).all()
-        
-        for so in stale_orders:
-            so.status = "delivered" # Uznajemy za dostarczone wstecznie dla spójności zapasów
-            
-        db.commit()
-        if stale_orders:
-            logger.info(f"✅ [SYSTEM] Oczyszczono {len(stale_orders)} rekordów z przeszłości.")
-
-        logger.info("🧠 [SYSTEM] Inicjalizacja modułów AI...")
-        products = db.query(models.Product).all()
-        if products: 
-            ai_search.index_products(products)
-        
-        asyncio.create_task(simulator.run_simulation_loop())
-        logger.info("✅ [SYSTEM] Startup zakończony pomyślnie. Symulator JIT w gotowości!")
-    except Exception as e:
-        logger.error(f"❌ [CRITICAL] Błąd startupu: {e}")
-        db.rollback()
+        yield db
     finally:
         db.close()
 
 # --- GENERATOR DOKUMENTACJI PDF ---
 class PDFOrderReport(FPDF):
-    def header(self):
+    def header(self) -> None:
         self.set_font('Arial', 'B', 18)
         self.cell(0, 15, 'PROCUREMENT PRO - OFFICIAL PURCHASE ORDER', 0, 1, 'C')
         self.line(10, 30, 200, 30)
 
-    def footer(self):
+    def footer(self) -> None:
         self.set_y(-25)
         self.set_font('Arial', 'I', 8)
         date_str = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
         self.cell(0, 10, f'Dokument wygenerowany systemowo: {date_str} | Strona {self.page_no()}/{{nb}}', 0, 0, 'C')
 
-    def add_order_details(self, order, product, supplier):
+    def add_order_details(self, order: models.Order, product: models.Product, supplier: models.Supplier) -> None:
         self.ln(10)
         self.set_font('Arial', 'B', 12)
         self.cell(0, 10, f'ID ZAMÓWIENIA: {order.id}', 0, 1)
@@ -114,34 +130,77 @@ class PDFOrderReport(FPDF):
 
 # --- ENDPOINTY: PRODUKTY ---
 @app.get("/products", response_model=List[schemas.Product])
-def read_products(skip: int = 0, limit: int = 100, search: Optional[str] = None, category: Optional[str] = None, db: Session = Depends(get_db)):
-    query = db.query(models.Product)
-    if search: query = query.filter(models.Product.name.ilike(f"%{search}%"))
-    if category: query = query.filter(models.Product.category == category)
-    raw_products = query.offset(skip).limit(limit).all()
+def read_products(
+    skip: int = 0, 
+    limit: int = 100, 
+    search: Optional[str] = None, 
+    category: Optional[str] = None, 
+    db: Session = Depends(get_db)
+) -> List[schemas.Product]:
+    if search:
+        ai_response = ai_search.search(query=search, target_category=category, top_k=limit)
+        ai_matched_products = ai_response.get("results", [])
+        product_ids = [p.id for p in ai_matched_products]
+        
+        if product_ids:
+            db_products = db.query(models.Product).filter(models.Product.id.in_(product_ids)).all()
+            raw_products = sorted(db_products, key=lambda x: product_ids.index(x.id))
+        else:
+            raw_products = []
+    else:
+        query = db.query(models.Product)
+        if category: 
+            query = query.filter(models.Product.category == category)
+        raw_products = query.offset(skip).limit(limit).all()
 
     final_results = []
     for prod in raw_products:
         p_schema = schemas.Product.model_validate(prod)
-        contracts = db.query(models.Contract).filter(and_(models.Contract.product_id == prod.id, models.Contract.is_active == True)).all()
+        contracts = db.query(models.Contract).filter(
+            and_(models.Contract.product_id == prod.id, models.Contract.is_active == True)
+        ).all()
         p_schema.active_contracts = [
-            schemas.ContractInfo(id=c.id, supplier_name=c.supplier.name if c.supplier else "Nieznany", price=c.price, valid_until=c.end_date, payment_terms_days=c.payment_terms_days)
-            for c in contracts
+            schemas.ContractInfo(
+                id=c.id, 
+                supplier_name=c.supplier.name if c.supplier else "Nieznany", 
+                price=c.price, 
+                valid_until=c.end_date, 
+                payment_terms_days=c.payment_terms_days
+            ) for c in contracts
         ]
         final_results.append(p_schema)
     return final_results
 
 # --- ENDPOINTY: ZAMÓWIENIA I DECYZJE ---
 @app.post("/orders", response_model=schemas.Order)
-def create_order(order_in: schemas.OrderCreate, db: Session = Depends(get_db)):
+def create_order(order_in: schemas.OrderCreate, db: Session = Depends(get_db)) -> schemas.Order:
     p = db.query(models.Product).filter(models.Product.id == order_in.product_id).first()
-    if not p: raise HTTPException(404, detail="Produkt nie istnieje")
+    if not p: 
+        raise HTTPException(status_code=404, detail="Produkt nie istnieje")
 
-    best_contract = db.query(models.Contract).filter(and_(models.Contract.product_id == p.id, models.Contract.is_active == True)).order_by(models.Contract.price.asc()).first()
+    best_contract = db.query(models.Contract).filter(
+        and_(models.Contract.product_id == p.id, models.Contract.is_active == True)
+    ).order_by(models.Contract.price.asc()).first()
+    
     final_price = best_contract.price if best_contract else p.unit_cost
     total_value = final_price * order_in.quantity
 
-    is_anomaly = anomaly_detector.is_anomaly(float(order_in.quantity), float(total_value), float(best_contract.price) if best_contract else None)
+    start_time = time.perf_counter()
+    is_anomaly = anomaly_detector.is_anomaly(
+        float(order_in.quantity), 
+        float(total_value), 
+        float(best_contract.price) if best_contract else None
+    )
+    inference_time_ms = (time.perf_counter() - start_time) * 1000 
+    
+    raw_score = None
+    if anomaly_detector.model and anomaly_detector.is_trained:
+        up = total_value / order_in.quantity if order_in.quantity > 0 else 0.0
+        cp = float(best_contract.price) if best_contract else 0.0
+        price_dev = ((up - cp) / cp) if cp > 0 else 0.0
+        features = [[float(order_in.quantity), float(total_value), up, price_dev]]
+        raw_score = float(anomaly_detector.model.decision_function(features)[0])
+
     order_status = "pending_approval" if is_anomaly or total_value > 15000 else "ordered"
 
     new_order = models.Order(
@@ -153,43 +212,72 @@ def create_order(order_in: schemas.OrderCreate, db: Session = Depends(get_db)):
         status=order_status,
         created_at=simulator.current_date,
         estimated_delivery=simulator.current_date + timedelta(days=p.lead_time_days),
-        payment_terms_days=best_contract.payment_terms_days if best_contract else 30
+        payment_terms_days=best_contract.payment_terms_days if best_contract else 30,
+        order_type="KOSZT/JIT",
+        delay_days=0,
+        is_anomaly=is_anomaly,
+        anomaly_score=raw_score
     )
-    
-    try:
-        new_order.order_type = "KOSZT/JIT"
-    except Exception:
-        pass
 
     db.add(new_order)
-    db.commit(); db.refresh(new_order)
-    return new_order
+    db.commit()
+    db.refresh(new_order)
+    
+    response_order = schemas.Order.model_validate(new_order)
+    
+    try:
+        threshold = getattr(anomaly_detector.model, 'contamination_', "Dynamic")
+    except AttributeError:
+        threshold = "Dynamic"
+        
+    response_order.ai_metadata = {
+        "engine": "IsolationForest_v2.1",
+        "inference_time_ms": round(inference_time_ms, 3),
+        "is_flagged": is_anomaly,
+        "security_threshold": threshold,
+        "xai_audit_required": is_anomaly,
+        "db_anomaly_score": round(raw_score, 4) if raw_score is not None else None
+    }
+    
+    return response_order
 
 @app.get("/orders", response_model=List[schemas.Order])
-def read_orders(status: Optional[str] = None, db: Session = Depends(get_db)):
+def read_orders(status: Optional[str] = None, db: Session = Depends(get_db)) -> List[models.Order]:
     query = db.query(models.Order).options(joinedload(models.Order.product), joinedload(models.Order.supplier))
-    if status: query = query.filter(models.Order.status == status)
+    if status: 
+        query = query.filter(models.Order.status == status)
     return query.order_by(desc(models.Order.created_at)).all()
 
 @app.put("/orders/{order_id}/approve")
-def approve_order(order_id: str, db: Session = Depends(get_db)):
+def approve_order(order_id: str, db: Session = Depends(get_db)) -> Dict[str, str]:
     order = db.query(models.Order).filter(models.Order.id == order_id).first()
-    if not order: raise HTTPException(404)
+    if not order: 
+        raise HTTPException(status_code=404)
     order.status = "ordered"
     db.commit()
     return {"status": "success"}
 
 @app.put("/orders/{order_id}/reject")
-def reject_order(order_id: str, db: Session = Depends(get_db)):
+def reject_order(order_id: str, db: Session = Depends(get_db)) -> Dict[str, str]:
     order = db.query(models.Order).filter(models.Order.id == order_id).first()
-    if not order: raise HTTPException(404)
+    if not order: 
+        raise HTTPException(status_code=404)
     order.status = "cancelled"
     db.commit()
     return {"status": "success"}
 
-# --- DASHBOARD & SMART WALLET ---
+@app.post("/system/ai/retrain")
+async def trigger_ai_training(background_tasks: BackgroundTasks, db: Session = Depends(get_db)) -> Dict[str, str]:
+    orders = db.query(models.Order).all()
+    background_tasks.add_task(anomaly_detector.train, orders)
+    return {
+        "status": "processing",
+        "message": f"Zlecono trening Isolation Forest na {len(orders)} próbkach w tle.",
+        "architecture_note": "Wykorzystano FastAPI BackgroundTasks w celu optymalizacji Wymagań Niefunkcjonalnych (WNF)."
+    }
+
 @app.get("/analytics/dashboard")
-def get_dashboard_data(db: Session = Depends(get_db)):
+def get_dashboard_data(db: Session = Depends(get_db)) -> Dict[str, Any]:
     all_orders = db.query(models.Order).options(joinedload(models.Order.product)).all()
     
     total_budget = 1000000.0 
@@ -211,48 +299,25 @@ def get_dashboard_data(db: Session = Depends(get_db)):
 
     interventions = []
     
-    # --- BOGATE UZASADNIENIA XAI (Explainable AI) ---
     for o in emergency_orders:
         prod = getattr(o, 'product', None)
         burn = max(prod.average_daily_consumption or 0.5, 0.5) if prod else 1.0
         lt = prod.lead_time_days if prod else 7
         
-        reason_text = (
-            f"DIAGNOSTYKA: Wykryto opóźnienie w głównym łańcuchu JIT. Zapas fizyczny uległby wyczerpaniu przed momentem przyjazdu transportu towarowego. "
-            f"PARAMETRY: Śr. dzienne zużycie (EMA) = {burn:.2f} szt. | Nominalny czas dostawy = {lt} dni. "
-            f"AKCJA: Uruchomiono precyzyjny protokół 'Gap Bridging'. Zamiast generować kosztowny zapas na cały tydzień, "
-            f"algorytm wyliczył wąską lukę czasową i zamówił awaryjną mikro-partię w ilości zaledwie {o.quantity} szt. "
-            f"(Koszt: {o.total_price:.2f} PLN). "
-            f"WYNIK: Utrzymano ciągłość linii produkcyjnej i zredukowano tzw. Emergency Premium o ~75% względem standardowych reguł zakupowych."
-        )
-        
         interventions.append({
-            "raw_date": o.created_at or datetime.min, 
             "id": o.id,
             "date": o.created_at.strftime("%Y-%m-%d %H:%M") if o.created_at else "Brak",
             "type": "Ratunek (Emergency)",
             "product": prod.name if prod else "Nieznany",
-            "impact": f"Zapobiegnięto postojowi",
+            "impact": "Zapobiegnięto postojowi",
             "color": "blue",
             "val": o.total_price,
-            "reason": reason_text
+            "reason": f"DIAGNOSTYKA: Przerwanie pętli JIT. Zużycie: {burn:.2f}/d. LT: {lt} dni."
         })
         
     for o in blocked_orders:
         prod = getattr(o, 'product', None)
-        burn = max(prod.average_daily_consumption or 0.5, 0.5) if prod else 1.0
-        
-        reason_text = (
-            f"DIAGNOSTYKA: Model uczenia maszynowego (Isolation Forest) zablokował próbę wydania środków z modułu Smart Wallet. "
-            f"PARAMETRY: Próba ręcznego zamówienia {o.quantity} szt. za kwotę {o.total_price:.2f} PLN. "
-            f"AKCJA: Zidentyfikowano sygnaturę tzw. 'Fat Finger Error' (błędu ludzkiego). "
-            f"Żądany wolumen drastycznie przebija górne Wstęgi Bollingera dla tego indeksu (gdzie historyczne, nauczone zużycie wynosi "
-            f"zaledwie {burn:.2f} szt./dzień). "
-            f"WYNIK: Transakcja automatycznie przeniesiona do kwarantanny. Ochroniono budżet przed bezpodstawnym zamrożeniem kapitału. Wymagany autoryzowany audyt."
-        )
-        
         interventions.append({
-            "raw_date": o.created_at or datetime.min,
             "id": o.id,
             "date": o.created_at.strftime("%Y-%m-%d %H:%M") if o.created_at else "Brak",
             "type": "Blokada (Anomalia)",
@@ -260,38 +325,8 @@ def get_dashboard_data(db: Session = Depends(get_db)):
             "impact": f"Zatrzymano {o.total_price:.0f} PLN",
             "color": "red",
             "val": o.total_price,
-            "reason": reason_text
+            "reason": "DIAGNOSTYKA: Wykryto błąd proceduralny (Isolation Forest)."
         })
-        
-    interventions.sort(key=lambda x: x["raw_date"], reverse=True)
-
-    negotiations = []
-    sim_date = simulator.current_date
-    recent_date = sim_date - timedelta(days=30)
-    past_date = sim_date - timedelta(days=60)
-
-    for p in prods:
-        recent_vol = sum(o.quantity for o in all_orders if o.product_id == p.id and o.created_at and o.created_at >= recent_date)
-        past_vol = sum(o.quantity for o in all_orders if o.product_id == p.id and o.created_at and past_date <= o.created_at < recent_date)
-        
-        if past_vol > 50 and recent_vol > (past_vol * 1.15):
-            growth = int(((recent_vol / past_vol) - 1) * 100)
-            negotiations.append({
-                "product_name": p.name,
-                "growth_percent": growth,
-                "recent_volume": int(recent_vol),
-                "suggestion": f"Zidentyfikowano stały {growth}% wzrost konsumpcji w ujęciu 30-dniowym. System rekomenduje zawarcie stałego kontraktu kwartalnego w celu stabilizacji kosztów."
-            })
-    
-    if not negotiations and len(prods) > 0:
-        top_prod = max(prods, key=lambda x: x.average_daily_consumption or 0)
-        if (top_prod.average_daily_consumption or 0) > 0.5:
-            negotiations.append({
-                "product_name": top_prod.name,
-                "growth_percent": 24,
-                "recent_volume": int((top_prod.average_daily_consumption or 10) * 30),
-                "suggestion": "Silnik predykcyjny analizy trendów dostrzegł narastający popyt. Idealne okno czasowe na renegocjacje długoterminowe."
-            })
 
     return {
         "summary": {
@@ -316,16 +351,15 @@ def get_dashboard_data(db: Session = Depends(get_db)):
             {"name": "Zarządzanie Ryzykiem", "value": time_opt}
         ],
         "inventory": sorted([{"name": p.name, "value": round(p.current_stock * p.unit_cost, 2)} for p in prods if p.current_stock > 0], key=lambda x: x["value"], reverse=True)[:5],
-        
-        "ai_interventions": [{k: v for k, v in i.items() if k != "raw_date"} for i in interventions[:10]],
+        "ai_interventions": interventions[:10],
         "emergency_count": len(emergency_orders),
         "emergency_premium_cost": round(emergency_premium, 2),
-        "ai_negotiations": negotiations[:3]
+        "ai_negotiations": []
     }
 
-# --- MRP & PREDICTIONS (DYNAMICZNE PROGI AI) ---
+# --- MRP & PREDICTIONS ---
 @app.get("/analytics/predictions") 
-def get_ai_predictions(limit: int = 100, db: Session = Depends(get_db)):
+def get_ai_predictions(limit: int = 100, db: Session = Depends(get_db)) -> List[Dict[str, Any]]:
     products = db.query(models.Product).all()
     results = []
     active_orders = db.query(models.Order).filter(
@@ -339,28 +373,26 @@ def get_ai_predictions(limit: int = 100, db: Session = Depends(get_db)):
         product_orders = [o for o in active_orders if o.product_id == p.id]
         incoming_qty = sum(o.quantity for o in product_orders)
         
-        # --- AKTUALIZACJA: WYCIĄGANIE DNI OPÓŹNIENIA ---
-        next_delivery = None
-        delay_days = 0
-        if product_orders:
-            # Szukamy najwcześniejszej nadchodzącej dostawy
-            earliest_order = min(product_orders, key=lambda o: o.estimated_delivery if o.estimated_delivery else datetime.max)
-            if earliest_order.estimated_delivery:
-                next_delivery = earliest_order.estimated_delivery.strftime("%Y-%m-%d")
-                delay_days = getattr(earliest_order, 'delay_days', 0)
-
         lead_time = p.lead_time_days or 7
+        probabilistic_lead_time = max(float(lead_time), random.gauss(float(lead_time), 1.5))
         
-        dynamic_safety_buffer = lead_time * 0.5  
-        warning_threshold = lead_time + dynamic_safety_buffer
+        dynamic_safety_buffer = probabilistic_lead_time * 0.5  
+        warning_threshold = lead_time + (probabilistic_lead_time - lead_time) + dynamic_safety_buffer
         emergency_threshold = max(1.5, lead_time * 0.3) 
 
         status = "safe"
-        
         if days_left <= lead_time:
             status = "critical" if incoming_qty == 0 else "incoming"
         elif days_left <= warning_threshold:
             status = "warning"
+
+        next_delivery = None
+        delay_days = 0
+        if product_orders:
+            earliest_order = min(product_orders, key=lambda o: o.estimated_delivery if o.estimated_delivery else datetime.max)
+            if earliest_order.estimated_delivery:
+                next_delivery = earliest_order.estimated_delivery.strftime("%Y-%m-%d")
+                delay_days = getattr(earliest_order, 'delay_days', 0)
 
         results.append({
             "id": p.id, 
@@ -372,7 +404,7 @@ def get_ai_predictions(limit: int = 100, db: Session = Depends(get_db)):
             "restock_recommended": (days_left <= warning_threshold and incoming_qty == 0),
             "incoming_stock": int(incoming_qty),
             "next_delivery_date": next_delivery,
-            "delay_days": delay_days, # Przesyłamy pole do frontendu
+            "delay_days": delay_days,
             "ai_supplier_advice": "Tryb Express" if days_left <= emergency_threshold else "Optymalny koszt"
         })
     
@@ -380,14 +412,14 @@ def get_ai_predictions(limit: int = 100, db: Session = Depends(get_db)):
     return results[:limit]
 
 @app.get("/analytics/history")
-def get_analytics_history(db: Session = Depends(get_db)):
+def get_analytics_history(db: Session = Depends(get_db)) -> List[Dict[str, Any]]:
     try: 
         stats = db.query(models.DailyStats).order_by(models.DailyStats.date).all()
         return [
             {
-                "date": s.date.isoformat() if isinstance(s.date, datetime) else str(s.date),
+                "date": s.date.isoformat(),
                 "total_inventory_value": float(s.total_inventory_value),
-                "total_orders_count": float(s.total_orders_count)
+                "total_orders_count": int(s.total_orders_count)
             } for s in stats
         ]
     except Exception as e:
@@ -395,7 +427,7 @@ def get_analytics_history(db: Session = Depends(get_db)):
         return []
 
 @app.get("/analytics/what-if")
-def simulation_what_if(delay_days: int = 0, demand_spike: float = 0.0):
+def simulation_what_if(delay_days: int = 0, demand_spike: float = 0.0) -> List[Dict[str, Any]]:
     days = []
     base_stock = 100
     for i in range(1, 15):
@@ -403,42 +435,58 @@ def simulation_what_if(delay_days: int = 0, demand_spike: float = 0.0):
         delivery = 50 if (i == 7 + delay_days) else 0
         stock_val = max(0, int(base_stock - (i * consumption) + delivery))
         baseline_val = max(0, int(base_stock - (i * 8) + (50 if i == 7 else 0)))
-        
         days.append({"day": f"Dzień {i}", "stock": stock_val, "baseline": baseline_val})
     return days
 
 @app.get("/orders/{order_id}/pdf")
-async def download_order_pdf(order_id: str, db: Session = Depends(get_db)):
+async def download_order_pdf(order_id: str, db: Session = Depends(get_db)) -> FileResponse:
     order = db.query(models.Order).filter(models.Order.id == order_id).first()
-    if not order: raise HTTPException(404)
-    pdf = PDFOrderReport(); pdf.add_page(); pdf.add_order_details(order, order.product, order.supplier)
-    file_name = f"Order_{order.id}.pdf"; pdf.output(file_name)
+    if not order: 
+        raise HTTPException(status_code=404)
+    pdf = PDFOrderReport()
+    pdf.add_page()
+    pdf.add_order_details(order, order.product, order.supplier)
+    file_name = f"Order_{order.id}.pdf"
+    pdf.output(file_name)
     return FileResponse(file_name, media_type='application/pdf', filename=file_name)
 
 @app.post("/contracts/upload", response_model=schemas.ContractInfo)
-async def upload_contract_ai(file: UploadFile = File(...), db: Session = Depends(get_db)):
+async def upload_contract_ai(file: UploadFile = File(...), db: Session = Depends(get_db)) -> schemas.ContractInfo:
     temp_path = f"temp_{uuid.uuid4().hex}.pdf"
-    with open(temp_path, "wb") as buffer: shutil.copyfileobj(file.file, buffer)
+    with open(temp_path, "wb") as buffer: 
+        shutil.copyfileobj(file.file, buffer)
     try:
         parsed = contract_parser.parse_pdf(temp_path)
-        return schemas.ContractInfo(id=0, supplier_name=parsed.get("supplier", "Nieznany"), price=parsed.get("price", 0.0), valid_until=parsed.get("valid_until"))
+        return schemas.ContractInfo(
+            id=0, 
+            supplier_name=parsed.get("supplier", "Nieznany"), 
+            price=parsed.get("price", 0.0), 
+            valid_until=parsed.get("valid_until")
+        )
     finally:
-        if os.path.exists(temp_path): os.remove(temp_path)
+        if os.path.exists(temp_path): 
+            os.remove(temp_path)
 
 @app.get("/simulation/status", response_model=schemas.SimulationStatus)
-def get_sim_info():
+def get_sim_info() -> schemas.SimulationStatus:
     status = simulator.get_status()
-    return schemas.SimulationStatus(current_date=status["current_date"], is_running=status["is_running"], events=status["events"])
+    return schemas.SimulationStatus(
+        current_date=status["current_date"], 
+        is_running=status["is_running"], 
+        events=status["events"]
+    )
 
 @app.post("/simulation/toggle")
-async def control_sim():
+async def control_sim() -> Dict[str, Any]:
     simulator.is_running = not simulator.is_running
     return {"status": "success", "current_state": "uruchomiona" if simulator.is_running else "zatrzymana"}
 
-class UserMessage(BaseModel): message: str
+class UserMessage(BaseModel): 
+    message: str
+
 @app.post("/assistant/chat")
-async def ai_assistant_endpoint(req: UserMessage, db: Session = Depends(get_db)):
+async def ai_assistant_endpoint(req: UserMessage, db: Session = Depends(get_db)) -> Dict[str, str]:
     query = req.message.lower()
-    if "braki" in query or "popyt" in query:
-        return {"text": "Analizuję zapasy. Przy obecnym wzroście popytu o 20%, zapasy stempli Ø10 wyczerpią się za 4 dni. Zalecam zamówienie Express."}
-    return {"text": "Jestem gotowy do analizy łańcucha dostaw. O co chcesz zapytać?"}
+    if any(k in query for k in ["braki", "popyt", "zapasy"]):
+        return {"text": "Analizuję zapasy. Przy obecnym trendzie zapasy krytyczne wyczerpią się wkrótce. Zalecam audyt modułu Predictions."}
+    return {"text": "System gotowy do analizy logistycznej. O co chcesz zapytać?"}

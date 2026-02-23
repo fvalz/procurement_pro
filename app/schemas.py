@@ -1,14 +1,12 @@
-from pydantic import BaseModel, Field
-from typing import List, Optional, Any
+from pydantic import BaseModel, Field, ConfigDict
+from typing import List, Optional, Any, Dict
 from datetime import datetime
 
 # --- MODELE POMOCNICZE (CONTRACT INFO) ---
-# Używane do wyświetlania skróconych informacji o kontraktach wewnątrz Produktu
 class ContractInfo(BaseModel):
     id: int
     supplier_name: Optional[str] = "Nieznany dostawca"
     price: float
-    # To pole mapujemy ręcznie w main.py z pola 'end_date' w bazie
     valid_until: Optional[datetime] = None 
     payment_terms_days: int = 30
 
@@ -25,21 +23,16 @@ class SupplierCreate(SupplierBase):
 class Supplier(SupplierBase):
     id: int
     
-    class Config:
-        from_attributes = True
+    model_config = ConfigDict(from_attributes=True)
 
 # --- PRODUKTY (PRODUCT) ---
 class ProductBase(BaseModel):
     name: str
     category: str
     unit_cost: float
-    
-    # POLA OPCJONALNE (Zapobiegają błędom walidacji, gdy baza ma braki)
     description: Optional[str] = None
     unit: Optional[str] = "szt."
     min_stock_level: Optional[int] = 0
-    
-    # Dane symulacyjne
     average_daily_consumption: Optional[float] = 0.0
     lead_time_days: Optional[int] = 7
 
@@ -48,17 +41,12 @@ class ProductCreate(ProductBase):
 
 class Product(ProductBase):
     id: int
-    current_stock: int # Używamy Integer zgodnie z ustaleniami
-    
-    # Relacje (opcjonalne)
+    current_stock: int 
     supplier_id: Optional[int] = None
     supplier: Optional[Supplier] = None
-
-    # --- KLUCZOWE POLE (Naprawia ValueError w main.py) ---
     active_contracts: List[ContractInfo] = [] 
     
-    class Config:
-        from_attributes = True
+    model_config = ConfigDict(from_attributes=True)
 
 # --- ZAMÓWIENIA (ORDER) ---
 class OrderBase(BaseModel):
@@ -69,24 +57,30 @@ class OrderBase(BaseModel):
     status: str = "pending"
     payment_terms_days: int = 30
     order_type: Optional[str] = "standard"
+    delay_days: int = 0
 
 class OrderCreate(OrderBase):
     pass
 
 class Order(OrderBase):
-    id: str # String (np. "ORD-123")
+    id: str 
     created_at: datetime
     order_type: Optional[str] = None
-    
-    # Daty mogą być puste w bazie
     estimated_delivery: Optional[datetime] = None
-    
-    # Relacje
     product: Optional[Product] = None
     supplier: Optional[Supplier] = None
+    
+    # --- NOWE POLA ZGODNE Z MODELEM BAZODANOWYM (models.py) ---
+    is_anomaly: bool = False
+    anomaly_score: Optional[float] = None
+    
+    # --- Metadane analityczne AI doczepiane "w locie" do odpowiedzi API ---
+    ai_metadata: Optional[Dict[str, Any]] = Field(
+        default=None, 
+        description="Statystyki i dane diagnostyczne modelu Machine Learning"
+    )
 
-    class Config:
-        from_attributes = True
+    model_config = ConfigDict(from_attributes=True)
 
 # --- KONTRAKTY (CONTRACT) ---
 class ContractBase(BaseModel):
@@ -106,22 +100,18 @@ class Contract(ContractBase):
     supplier: Optional[Supplier] = None
     product: Optional[Product] = None
 
-    class Config:
-        from_attributes = True
+    model_config = ConfigDict(from_attributes=True)
 
 # --- STATYSTYKI I ANALITYKA ---
-
 class DailyStats(BaseModel):
     id: Optional[int] = None
     date: datetime
     total_inventory_value: float
     total_orders_count: int
 
-    class Config:
-        from_attributes = True
+    model_config = ConfigDict(from_attributes=True)
 
 # --- CYFROWY BLIŹNIAK (SIMULATION) ---
-
 class SimulationEvent(BaseModel):
     id: int
     date: str
@@ -135,23 +125,32 @@ class SimulationStatus(BaseModel):
     events: List[SimulationEvent] = []
 
 # --- MODELE PREDYKCJI (AI) ---
-# Niezbędne dla endpointu /analytics/predictions
 class Prediction(BaseModel):
     id: int
     product_name: str
     current_stock: int
     burn_rate: float
-    days_left: float
-    status: str # "ok", "warning", "critical"
+    days_left: Any # Może być float lub str ("Brak Danych")
+    status: str 
     restock_recommended: bool
     negotiation_alert: bool = False
     potential_savings: float = 0.0
-    
-    # NOWE POLA DO BILANSOWANIA MRP
-    incoming_stock: int = 0         # Ile sztuk jest już zamówionych (status 'ordered')
-    next_delivery_date: Optional[str] = None # Kiedy spodziewamy się dostawy
+    incoming_stock: int = 0
+    next_delivery_date: Optional[str] = None
+    delay_days: int = 0
+    ai_supplier_advice: Optional[str] = None
 
-# Model do wykresów (opcjonalny, jeśli używany)
+# --- MODELE INTERWENCJI (DLA DASHBOARDU) ---
+class AIIntervention(BaseModel):
+    id: str
+    date: str
+    type: str
+    product: str
+    impact: str
+    color: str
+    val: float
+    reason: str 
+
 class ChartDataPoint(BaseModel):
     name: str
     value: float
