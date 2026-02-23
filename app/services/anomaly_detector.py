@@ -3,6 +3,7 @@ import logging
 import os
 import joblib
 from sklearn.ensemble import IsolationForest
+from sklearn.preprocessing import RobustScaler
 from typing import Optional, List, Dict, Any
 from app import models
 
@@ -15,130 +16,79 @@ MIN_SAMPLES_FOR_TRAINING = 10
 
 class AnomalyDetector:
     """
-    Inteligentny Strażnik Budżetu (Anomaly Detector).
-    Realizuje audyt bezpieczeństwa procesów zakupowych przy użyciu Isolation Forest.
-    Rozbudowany o dynamiczną estymację progu odcięcia, Feature Engineering
-    oraz moduł XAI (Explainable AI) do analitycznego uzasadniania blokad.
+    Zaawansowany detektor anomalii zakupowych.
+    Wykorzystuje Isolation Forest wspierany przez RobustScaler oraz mechanizmy XAI.
     """
 
     def __init__(self) -> None:
         self.model: Optional[IsolationForest] = None
+        self.scaler: Optional[RobustScaler] = None
         self.is_trained: bool = False
         
-        # Nazwy cech (Feature Names) do celów modułu wyjaśnialności XAI
+        # Nazwy cech do celów XAI
         self.feature_names: List[str] = [
             "Ilość", 
             "Cena Całkowita", 
             "Cena Jednostkowa", 
             "Odchylenie od Kontraktu"
         ]
-        # Statystyki historyczne do wyliczania Z-score (średnia i odchylenie std)
+        
+        # Statystyki do wyliczania Z-score (wyjaśnialność modelu)
         self.training_stats: Dict[int, Dict[str, float]] = {}
         
         self._load_model_if_exists()
 
     def _load_model_if_exists(self) -> None:
-        """Pobiera model oraz historyczne wagi statystyczne z dysku."""
+        """Wczytuje model, scaler oraz statystyki z dysku."""
         if os.path.exists(MODEL_PATH):
             try:
                 data = joblib.load(MODEL_PATH)
-                # Zabezpieczenie na wypadek starej wersji pliku .pkl (bez słownika XAI)
                 if isinstance(data, dict) and "model" in data:
                     self.model = data.get("model")
+                    self.scaler = data.get("scaler")
                     self.training_stats = data.get("stats", {})
+                    self.is_trained = True
+                    logger.info("✅ [AI SECURITY] Model i Scaler zostały załadowane.")
                 else:
-                    self.model = data
-                    self.training_stats = {}
-                    
-                self.is_trained = True
-                logger.info("✅ [AI SECURITY] Model detekcji oraz macierz XAI załadowane.")
+                    logger.warning("⚠️ [AI SECURITY] Niekompatybilny format modelu. Wymagany retrain.")
             except Exception as e:
                 logger.error(f"❌ [AI SECURITY] Błąd wczytywania modelu: {e}")
-        else:
-            logger.warning("⚠️ [AI SECURITY] Brak modelu na dysku. Wymagany trening wektora.")
-
-    def _calculate_dynamic_contamination(self, X: np.ndarray) -> float:
-        """
-        Dynamicznie wylicza współczynnik zanieczyszczenia (contamination)
-        bazując na analizie wariancji (reguła trzech sigm dla ceny jednostkowej).
-        """
-        unit_prices = X[:, 2]
-        mean_up = np.mean(unit_prices)
-        std_up = np.std(unit_prices)
-        
-        if std_up == 0:
-            return 0.01 
-            
-        # Wyodrębnienie transakcji wykraczających poza 3 odchylenia standardowe
-        outliers_count = np.sum(np.abs(unit_prices - mean_up) > 3 * std_up)
-        contamination = float(outliers_count / len(X))
-        
-        # Hard-clipping progu do bezpiecznego przedziału [0.01, 0.1]
-        return float(np.clip(contamination, 0.01, 0.1))
-
-    def _get_feature_importance(self, features: np.ndarray) -> str:
-        """
-        Mechanizm Explainable AI (XAI).
-        Normalizuje odchylenia (Z-score) i zwraca tekstowe uzasadnienie flagowania.
-        """
-        if not self.training_stats:
-            return "Brak danych historycznych do analizy wielowymiarowej."
-
-        deviations = []
-        for i, val in enumerate(features[0]):
-            if i not in self.training_stats:
-                deviations.append(0.0)
-                continue
-                
-            mean = self.training_stats[i]["mean"]
-            std = self.training_stats[i]["std"]
-            
-            # Ewaluacja Z-score z zabezpieczeniem dzielenia przez zero (epsilon)
-            z_score = abs(val - mean) / (std if std > 0 else 1e-5)
-            deviations.append(z_score)
-
-        total_dev = sum(deviations)
-        if total_dev == 0:
-            return "Odchylenia są statystycznie nieistotne."
-
-        explanation = []
-        for i, z_val in enumerate(deviations):
-            impact_percent = (z_val / total_dev) * 100
-            # Redukcja szumu: logujemy tylko cechy o decydującym znaczeniu (>15%)
-            if impact_percent > 15.0:  
-                explanation.append(
-                    f"{self.feature_names[i]} ma {impact_percent:.0f}% wpływu "
-                    f"(odchylenie: {z_val:.1f} odchylenia standardowego)"
-                )
-
-        return " | ".join(explanation)
 
     def train(self, orders: list[models.Order]) -> None:
         """
-        Agreguje i trenuje model na podstawie danych historycznych (Feature Engineering).
+        Uczy model na podstawie 'czystych' danych historycznych.
         """
-        if not orders or len(orders) < MIN_SAMPLES_FOR_TRAINING:
-            logger.warning(f"⚠️ [AI SECURITY] Zbyt mała próba badawcza do treningu ({len(orders)}).")
+        # POPRAWKA: Używamy is_anomaly zamiast nieistniejącego pola notes
+        valid_orders = [o for o in orders if not o.is_anomaly]
+
+        if len(valid_orders) < MIN_SAMPLES_FOR_TRAINING:
+            logger.warning(f"⚠️ [AI SECURITY] Za mało czystych danych do treningu ({len(valid_orders)}).")
             return
 
         try:
             data = []
-            for o in orders:
+            for o in valid_orders:
                 q = float(o.quantity) if o.quantity else 0.0
                 tp = float(o.total_price) if o.total_price else 0.0
-                
-                # Naprawiony błąd arytmetyczny (wcześniej było q / tp)
                 up = tp / q if q > 0 else 0.0
                 
-                # Symulacja Feature Engineering dla starszych danych
-                cp = float(getattr(o, 'contract_price', 0.0))
-                price_dev = ((up - cp) / cp) if cp > 0 else 0.0
+                # POPRAWKA: Pobieranie ceny kontraktowej przez relację Product -> Contracts
+                cp = 0.0
+                if o.product and o.product.contracts:
+                    active_contract = next((c for c in o.product.contracts if c.is_active), None)
+                    if active_contract:
+                        cp = float(active_contract.price)
                 
+                price_dev = ((up - cp) / cp) if cp > 0 else 0.0
                 data.append([q, tp, up, price_dev])
             
             X = np.array(data)
 
-            # Ekstrakcja statystyk na potrzeby modułu Explainable AI
+            # SKALOWANIE: RobustScaler jest odporny na wartości odstające
+            self.scaler = RobustScaler()
+            X_scaled = self.scaler.fit_transform(X)
+
+            # Wyliczanie statystyk dla modułu XAI
             self.training_stats = {}
             for i in range(X.shape[1]):
                 self.training_stats[i] = {
@@ -146,62 +96,85 @@ class AnomalyDetector:
                     "std": float(np.std(X[:, i]))
                 }
 
-            # Wyliczenie stochastycznego progu odcięcia
-            dynamic_cont = self._calculate_dynamic_contamination(X)
-            logger.info(f"🔄 [AI SECURITY] Optymalizacja z dynamicznym progiem odcięcia: {dynamic_cont:.4f}")
-
+            # MODEL: Zwiększona liczba drzew dla lepszej stabilności
             self.model = IsolationForest(
-                contamination=dynamic_cont,
+                contamination=0.05,
                 random_state=42,
+                n_estimators=200,
                 n_jobs=-1
             )
             
-            self.model.fit(X)
+            self.model.fit(X_scaled)
             self.is_trained = True
 
-            joblib.dump({"model": self.model, "stats": self.training_stats}, MODEL_PATH)
-            logger.info("✅ [AI SECURITY] Proces uczenia maszynowego sfinalizowany.")
+            # Zapis pełnego stanu
+            joblib.dump({
+                "model": self.model, 
+                "scaler": self.scaler, 
+                "stats": self.training_stats
+            }, MODEL_PATH)
+            
+            logger.info(f"✅ [AI SECURITY] Trening zakończony na {len(valid_orders)} rekordach.")
 
         except Exception as e:
-            logger.error(f"❌ [AI SECURITY] Krytyczny błąd w fazie uczenia: {e}")
+            logger.error(f"❌ [AI SECURITY] Błąd w fazie uczenia: {e}")
 
     def is_anomaly(self, quantity: float, total_price: float, contract_price: Optional[float] = None) -> bool:
         """
-        Pipeline inferencyjny z warstwową weryfikacją (Deterministyczna + Stochastyczna).
+        Ocenia czy transakcja jest anomalią przy użyciu AI i reguł biznesowych.
         """
         try:
-            q = float(quantity)
-            tp = float(total_price)
+            q, tp = float(quantity), float(total_price)
             cp = float(contract_price) if contract_price is not None else 0.0
-            
-            # Właściwa kalkulacja i wymiarowanie wektora cech
             up = tp / q if q > 0 else 0.0
             price_dev = ((up - cp) / cp) if cp > 0 else 0.0
 
-            # 1. Walidacja Kontraktowa (Reguła twarda)
-            if contract_price is not None:
-                if up > (cp * 1.15):
-                    logger.warning(f"🚨 [AI SECURITY] ODRZUCONO: Cena {up:.2f} PLN przekracza limit kontraktowy ({cp:.2f} PLN).")
-                    return True
+            # 1. Twarda reguła biznesowa (Safety Net)
+            if cp > 0 and up > (cp * 1.20):
+                logger.warning(f"🚨 [AI SECURITY] ODRZUCONO: Cena {up:.2f} przekracza limit kontraktu o >20%.")
+                return True
 
-            # 2. Analiza Statystyczna (Reguła miękka / Isolation Forest)
-            if not self.is_trained or self.model is None:
+            # 2. Analiza AI
+            if not self.is_trained or self.model is None or self.scaler is None:
                 return False
 
             features = np.array([[q, tp, up, price_dev]])
-            prediction = self.model.predict(features)
+            features_scaled = self.scaler.transform(features)
             
-            if prediction[0] == -1:
-                # Odkodowanie i wyjaśnienie decyzji (XAI)
+            prediction = self.model.predict(features_scaled)
+            score = self.model.decision_function(features_scaled)[0]
+
+            if prediction[0] == -1 or score < -0.05:
                 xai_reason = self._get_feature_importance(features)
-                logger.warning(f"🚨 [AI SECURITY] Zablokowano transakcję! Uzasadnienie modelu: {xai_reason}")
+                logger.warning(f"🚨 [AI SECURITY] Anomalia wykryta (Score: {score:.3f})! Powód: {xai_reason}")
                 return True
             
             return False
 
         except Exception as e:
-            logger.error(f"❌ [AI SECURITY] Błąd wykonania inferencji przestrzennej: {e}")
+            logger.error(f"❌ [AI SECURITY] Błąd podczas inferencji: {e}")
             return False
 
-# Inicjalizacja instancji
+    def _get_feature_importance(self, features: np.ndarray) -> str:
+        if not self.training_stats:
+            return "Wykryto nietypowy wzorzec danych (brak statystyk XAI)."
+
+        deviations = []
+        for i, val in enumerate(features[0]):
+            mean = self.training_stats[i]["mean"]
+            std = self.training_stats[i]["std"]
+            z_score = abs(val - mean) / (std if std > 0 else 1e-5)
+            deviations.append(z_score)
+
+        total_dev = sum(deviations)
+        if total_dev == 0: return "Minimalne odchylenie od normy."
+
+        explanation = []
+        for i, z_val in enumerate(deviations):
+            impact = (z_val / total_dev) * 100
+            if impact > 20.0:
+                explanation.append(f"{self.feature_names[i]} (odchylenie {z_val:.1f}σ)")
+
+        return "Główne czynniki: " + ", ".join(explanation)
+
 anomaly_detector = AnomalyDetector()
