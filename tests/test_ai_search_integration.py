@@ -1,106 +1,112 @@
 import pytest
+from unittest.mock import patch
 from types import SimpleNamespace
 from fastapi.testclient import TestClient
-from unittest.mock import MagicMock, patch
+from sqlalchemy import create_engine
+from sqlalchemy.orm import sessionmaker
+from sqlalchemy.pool import StaticPool
+
+# Importujemy aplikację i modele
 from app.main import app, get_db
+from app.database import Base
+from app import models
 
-def override_get_db_scripted():
+def test_read_products_semantic_integration():
     """
-    Mock "Scenariuszowy". 
-    Zamiast analizować zapytania SQL, po prostu zwraca dane w ustalonej kolejności.
-    To omija wszelkie problemy z filtrami, typami klas i importami.
+    [INTEGRACJA 100%]
+    Testuje pełną ścieżkę: Endpoint -> AI (Mock) -> Baza (SQLite RAM) -> Response.
+    Wszystko dzieje się lokalnie w teście, co gwarantuje izolację.
     """
-    db_mock = MagicMock()
 
-    # 1. PRZYGOTOWANIE PRODUKTÓW
-    # Muszą być "bogatymi" mockami, żeby Pydantic (schemas.Product) ich nie odrzucił
-    p1 = MagicMock()
-    p1.id = 1
-    p1.name = "Stempel"
-    p1.category = "Tnące"
-    p1.unit_cost = 10.0
-    p1.current_stock = 5
-    p1.lead_time_days = 3
-    p1.unit = "szt"
-    p1.average_daily_consumption = 1.0
-    # Ważne: musimy oszukać SQLAlchemy, że to nie jest lista, tylko obiekt
-    p1.__table__ = MagicMock() 
+    # 1. KONFIGURACJA BAZY DANYCH (Tylko dla tego testu)
+    # Używamy pamięci RAM, żeby było szybko i czysto
+    engine = create_engine(
+        "sqlite:///:memory:",
+        connect_args={"check_same_thread": False},
+        poolclass=StaticPool
+    )
+    TestingSessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
+    
+    # Tworzymy tabele
+    Base.metadata.create_all(bind=engine)
 
-    p2 = MagicMock()
-    p2.id = 2
-    p2.name = "Matryca"
-    p2.category = "Tnące"
-    p2.unit_cost = 20.0
-    p2.current_stock = 5
-    p2.lead_time_days = 3
-    p2.unit = "szt"
-    p2.average_daily_consumption = 1.0
-    p2.__table__ = MagicMock()
+    # 2. SEEDING (Zasilamy bazę danymi)
+    # Dodajemy produkty, które za chwilę "znajdzie" AI
+    db_session = TestingSessionLocal()
+    
+    # Tworzymy produkty z PEŁNYM zestawem pól, żeby uniknąć błędów walidacji Pydantic
+    p1 = models.Product(
+        id=1, 
+        name="Stempel", 
+        category="Tnące", 
+        unit_cost=10.0, 
+        current_stock=5, 
+        lead_time_days=3, 
+        unit="szt", 
+        average_daily_consumption=1.0,
+        description="Opis 1"
+    )
+    p2 = models.Product(
+        id=2, 
+        name="Matryca", 
+        category="Tnące", 
+        unit_cost=20.0, 
+        current_stock=5, 
+        lead_time_days=3, 
+        unit="szt", 
+        average_daily_consumption=1.0,
+        description="Opis 2"
+    )
+    
+    db_session.add(p1)
+    db_session.add(p2)
+    db_session.commit()
+    db_session.close()
 
-    # 2. DEFINICJA SCENARIUSZA (Iterator)
-    # Pierwsze wywołanie .all() zwróci listę produktów.
-    # Następne 50 wywołań (dla kontraktów) zwróci pustą listę.
-    scenario = [[p1, p2]] + [[] for _ in range(50)]
-    scenario_iterator = iter(scenario)
-
-    def side_effect_all():
+    # 3. NADPISANIE ZALEŻNOŚCI (Dependency Override)
+    # To sprawia, że endpoint /products użyje naszej bazy w RAM
+    def override_get_db():
+        db = TestingSessionLocal()
         try:
-            return next(scenario_iterator)
-        except StopIteration:
-            return []
+            yield db
+        finally:
+            db.close()
 
-    # 3. KONFIGURACJA MOCKA ZAPYTANIA
-    # Tworzymy uniwersalny obiekt query, który "połyka" wszystkie metody (.filter, .limit...)
-    # i zwraca samego siebie, aż do momentu wywołania .all()
-    query_mock = MagicMock()
-    query_mock.filter.return_value = query_mock
-    query_mock.limit.return_value = query_mock
-    query_mock.offset.return_value = query_mock
-    query_mock.order_by.return_value = query_mock
+    app.dependency_overrides[get_db] = override_get_db
     
-    # Podpinamy nasz scenariusz pod .all()
-    query_mock.all.side_effect = side_effect_all
+    # Tworzymy klienta API
+    client = TestClient(app)
 
-    # Każde wywołanie db.query(...) zwraca ten sam query_mock
-    db_mock.query.return_value = query_mock
-    
-    yield db_mock
+    # 4. MOCKOWANIE AI I WYKONANIE TESTU
+    # Patchujemy funkcję search w module app.main.ai_search
+    with patch("app.main.ai_search.search") as mock_search:
+        # Symulujemy odpowiedź AI - zwracamy obiekty z atrybutem ID
+        # main.py robi: [p.id for p in results], więc SimpleNamespace(id=X) wystarczy
+        mock_search.return_value = {
+            "results": [SimpleNamespace(id=1), SimpleNamespace(id=2)],
+            "max_score": 0.95
+        }
 
-# Podmiana zależności
-app.dependency_overrides[get_db] = override_get_db_scripted
-client = TestClient(app)
+        # Strzał do API
+        response = client.get("/products?search=narzedzie")
 
-@patch("app.main.ai_search.search")
-def test_read_products_semantic_integration(mock_search):
-    """
-    [INTEGRACJA] Test scenariuszowy (Scripted Mock).
-    Niezależny od bazy danych, filtrów SQL i wersji bibliotek.
-    """
-    
-    # 1. Mockujemy AI
-    # Main.py używa: product_ids = [p.id for p in ai_matched_products]
-    # Więc wystarczy SimpleNamespace z id.
-    mock_search.return_value = {
-        "results": [SimpleNamespace(id=1), SimpleNamespace(id=2)],
-        "max_score": 0.95
-    }
-    
-    # 2. Wywołujemy endpoint
-    # Wewnątrz endpointu:
-    # 1. db.query(Product)...all() -> Mock zwraca [p1, p2] (z iteratora)
-    # 2. Pętla po produktach:
-    #    db.query(Contract)...all() -> Mock zwraca [] (z iteratora)
-    response = client.get("/products?search=narzedzie")
-    
-    # 3. Weryfikacja
-    assert response.status_code == 200
-    data = response.json()
-    
-    # Debug krytyczny
-    if len(data) != 2:
-        print(f"\n[CRITICAL ERROR] Otrzymano: {data}")
+        # 5. WERYFIKACJA
+        assert response.status_code == 200
+        data = response.json()
 
-    assert len(data) == 2, "Endpoint musi zwrócić 2 produkty ze scenariusza!"
-    assert data[0]["id"] == 1
-    assert data[0]["name"] == "Stempel"
-    assert data[1]["id"] == 2
+        # Debug w razie problemów
+        if len(data) != 2:
+            print(f"\n[DEBUG] Baza zawierała produkty ID: 1, 2")
+            print(f"[DEBUG] AI zwróciło ID: 1, 2")
+            print(f"[DEBUG] API zwróciło: {data}")
+
+        assert len(data) == 2, "API powinno zwrócić 2 produkty z bazy in-memory"
+        
+        # Sprawdzamy konkretne dane
+        assert data[0]["id"] == 1
+        assert data[0]["name"] == "Stempel"
+        assert data[1]["id"] == 2
+        assert data[1]["name"] == "Matryca"
+
+    # Sprzątanie (opcjonalne, bo override jest lokalny dla app w pamięci, ale dobra praktyka)
+    app.dependency_overrides.clear()
