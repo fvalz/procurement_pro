@@ -231,7 +231,10 @@ class LogisticsSimulator:
             lt = 1 
             s_strategy = "EMERGENCY"
         else:
-            qty = max(15, int(math.ceil(avg_burn * (product.lead_time_days + 10))))
+            cycle_days = 14 
+            target_coverage = (product.lead_time_days or 7) + cycle_days
+            qty = max(15, int(math.ceil(avg_burn * target_coverage)))
+            
             price = base_price
             lt = product.lead_time_days or 7
             s_strategy = "KOSZT/JIT"

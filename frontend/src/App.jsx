@@ -99,7 +99,7 @@ function App() {
             <div className="logo-box"><Zap size={24} color="#fff" fill="#fff"/></div>
             <div>
                 <span className="logo-title">Procurement Pro</span>
-                <span className="logo-tag">v5.3.0 AI Enterprise</span>
+                <span className="logo-tag"></span>
             </div>
         </div>
 
@@ -117,10 +117,10 @@ function App() {
 
         <div className="sidebar-bottom">
             <div className="user-profile">
-                <div className="avatar">JD</div>
+                <div className="avatar"></div>
                 <div className="user-text">
-                    <span className="user-name">Manager Sourcingu</span>
-                    <span className="user-status">Online</span>
+                    <span className="user-name">Manager</span>
+                    <span className="user-status"></span>
                 </div>
             </div>
         </div>
@@ -208,7 +208,7 @@ function App() {
                     <div className="chart-section">
                         <div className="main-chart card">
                             <div className="chart-header">
-                                <div><h4>Strategia Doboru Dostawców</h4><p>Optymalizacja Koszt vs Ryzyko (Lead-Time)</p></div>
+                                <div><h4>Strategia Doboru Dostawców</h4><p>Typ zamówień</p></div>
                                 <Gavel size={20} color="#6366f1"/>
                             </div>
                             <ResponsiveContainer width="100%" height={300}>
@@ -240,7 +240,7 @@ function App() {
 
                     <div className="card sawtooth-card" style={{marginTop:'25px'}}>
                         <div className="chart-header">
-                            <div><h4>Cykl Magazynowy (Wykres Piłokształtny)</h4><p>Wizualizacja dostaw JIT i zużycia bieżącego</p></div>
+                            <div><h4>Wartość magazynu</h4><p>Wizualizacja dostaw JIT i zużycia bieżącego</p></div>
                             <TrendingUp color="#6366f1"/>
                         </div>
                         <ResponsiveContainer width="100%" height={300}>
@@ -266,7 +266,7 @@ function App() {
                             <div>
                                 <h4 style={{margin:0, display:'flex', alignItems:'center', gap:'10px'}}>
                                     <ShieldCheck size={20} color="#10b981"/> 
-                                    Dziennik Interwencji Strategicznych AI
+                                    Dziennik Interwencji AI
                                 </h4>
                                 <p style={{margin:'4px 0 0 0', fontSize:'0.85rem', color:'#64748b'}}>Rejestr autonomicznych decyzji ratunkowych i blokad oszustw. Kliknij wiersz, aby zobaczyć wyjaśnienie AI.</p>
                             </div>
@@ -315,8 +315,8 @@ function App() {
                 <div className="card table-view view-fade" style={{padding:0, overflow:'hidden'}}>
                     <div className="table-header-premium">
                         <div className="title-group">
-                            <h3>Magazyn MRP (Just-in-Time)</h3>
-                            <p>Symulacja cykli produkcyjnych i zapasów bezpieczeństwa</p>
+                            <h3>Magazyn MRP</h3>
+                            <p>Symulacja cykli produkcyjnych i zapasów</p>
                         </div>
                     </div>
                     <table className="premium-table">
@@ -338,10 +338,18 @@ function App() {
                                     <td style={{fontWeight:700}}>{p.product_name}</td>
                                     <td>{p.current_stock}</td>
                                     <td style={{color:'#6366f1', fontWeight:800}}>{p.incoming_stock > 0 ? `+${p.incoming_stock}` : '-'}</td>
+                                    {/* DODANO: OBSŁUGA WIZUALIZACJI OPÓŹNIEŃ (+X d) */}
                                     <td style={{fontSize:'0.85rem', color:'#64748b'}}>
                                         {p.next_delivery_date ? (
-                                            <div style={{display:'flex', alignItems:'center', gap:'6px', color:'#4f46e5', fontWeight:600}}>
-                                                <Truck size={14}/> {p.next_delivery_date}
+                                            <div style={{display:'flex', flexDirection:'column', gap:'2px'}}>
+                                                <div style={{display:'flex', alignItems:'center', gap:'6px', color:'#4f46e5', fontWeight:600}}>
+                                                    <Truck size={14}/> {p.next_delivery_date}
+                                                </div>
+                                                {p.delay_days > 0 && (
+                                                    <span style={{color:'#ef4444', fontSize:'0.7rem', fontWeight:800}}>
+                                                       (+{p.delay_days} d opóźnienia)
+                                                    </span>
+                                                )}
                                             </div>
                                         ) : '---'}
                                     </td>
@@ -531,7 +539,7 @@ function App() {
       <div className={`chat-bubble-widget ${isChatOpen ? 'expanded' : ''}`}>
           {isChatOpen ? (
               <div className="chat-window card">
-                  <div className="chat-header-bar"><span>Asystent ProcureBot AI</span><X size={18} onClick={() => setIsChatOpen(false)} style={{cursor:'pointer'}}/></div>
+                  <div className="chat-header-bar"><span>ProcureBot</span><X size={18} onClick={() => setIsChatOpen(false)} style={{cursor:'pointer'}}/></div>
                   <div className="chat-content">
                       {chatMessages.map((m, i) => (<div key={i} className={`msg-row ${m.from}`}><div className="bubble">{m.text}</div></div>))}
                       <div ref={chatEndRef}/>
