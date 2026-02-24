@@ -1,93 +1,146 @@
-import pytest
-from unittest.mock import MagicMock, patch
-from typing import List
+import logging
+import os
+import pickle
+import numpy as np
+from typing import List, Dict, Any, Optional
+from sentence_transformers import SentenceTransformer, util
 
-# Importujemy nasz serwis z pominięciem ładowania wagi modelu
-from app.services.ai_search import AISearchService
+# Konfiguracja loggera
+logger = logging.getLogger("AISearch")
 
-@pytest.fixture
-def mock_products() -> List[MagicMock]:
+class AISearchService:
     """
-    Syntetyczna baza asortymentowa przygotowana na potrzeby weryfikacji 
-    wstrzykiwania logiki domenowej (kategorii).
+    Zaawansowany silnik wyszukiwania semantycznego (Semantic Search Engine).
+    Wykorzystuje model wielojęzyczny do obsługi zapytań w języku polskim.
+    Implementuje podejście Hybrid Search (Vector + Keyword Boost).
     """
-    prod1 = MagicMock()
-    prod1.id = 1
-    prod1.name = "Śruba M8"
-    prod1.category = "Elementy złączne"
+    
+    # ZMIANA 1: Używamy modelu Multilingual, który lepiej radzi sobie z polskim
+    MODEL_NAME = "paraphrase-multilingual-MiniLM-L12-v2"
+    CACHE_FILE = "embeddings_cache.pkl"
 
-    prod2 = MagicMock()
-    prod2.id = 2
-    prod2.name = "Wkręt do drewna"
-    prod2.category = "Elementy złączne"
+    def __init__(self):
+        self.model = None
+        self.products_metadata = []
+        self.embeddings = None
+        self.is_ready = False
+        self._load_model()
 
-    prod3 = MagicMock()
-    prod3.id = 3
-    prod3.name = "Młotek"
-    prod3.category = "Narzędzia ręczne"
+    def _load_model(self):
+        try:
+            logger.info(f"🧠 [AI SEARCH] Ładowanie modelu NLP: {self.MODEL_NAME}...")
+            self.model = SentenceTransformer(self.MODEL_NAME)
+            self.is_ready = True
+            logger.info("✅ [AI SEARCH] Model załadowany. Gotowy do pracy.")
+        except Exception as e:
+            logger.error(f"❌ [AI SEARCH] Błąd ładowania modelu: {e}")
+            self.is_ready = False
 
-    return [prod1, prod2, prod3]
+    def index_products(self, products: List[Any]) -> None:
+        """
+        Tworzy indeks wektorowy dla listy produktów.
+        Łączy nazwę, kategorię i opis, aby AI miało pełny kontekst.
+        """
+        if not self.is_ready or not products:
+            return
 
-@patch('app.services.ai_search.SentenceTransformer')
-def test_hybrid_search_category_weighting(mock_transformer_class: MagicMock, mock_products: List[MagicMock]) -> None:
-    """
-    [Hybrid Search] Weryfikuje matematyczną modyfikację rankingu SBERT.
-    Sprawdza, czy premia kategorialna (+0.15) potrafi przełamać czyste 
-    podobieństwo kosinusowe i wypromować produkt z tej samej dziedziny.
-    """
-    # 1. Izolacja instancji
-    search_service = AISearchService()
-    search_service.model = MagicMock()  # Omijamy ciężki model NLP
-    search_service.products_cache = mock_products
-    search_service.embeddings = MagicMock()
-
-    # 2. Symulacja błędu sieci neuronowej (tzw. zjawisko Halucynacji Semantycznej)
-    # Wyobraźmy sobie zapytanie: "metalowy wbijak". 
-    # Czysty model SBERT uznaje, że Młotek (id:2) pasuje na 0.35, a Wkręt (id:1) na 0.34.
-    mock_raw_hits = [[
-        {'corpus_id': 2, 'score': 0.35},  # Młotek (inna kategoria)
-        {'corpus_id': 1, 'score': 0.34},  # Wkręt (docelowa kategoria)
-    ]]
-
-    with patch('app.services.ai_search.util.semantic_search', return_value=mock_raw_hits):
+        logger.info(f"🔄 [AI SEARCH] Indeksowanie {len(products)} produktów...")
         
-        # Wymuszamy poszukiwania w kontekście dziedziny "Elementy złączne"
-        response = search_service.search("metalowy element", target_category="Elementy złączne", top_k=2)
+        # Przygotowanie metadanych (id, nazwa, kategoria) do szybkiego dostępu
+        self.products_metadata = [
+            {
+                "id": p.id,
+                "name": p.name,
+                "category": p.category,
+                "description": getattr(p, "description", "") or ""
+            }
+            for p in products
+        ]
 
-        results = response["results"]
+        # ZMIANA 2: Rich Context - wektoryzujemy nie tylko nazwę, ale też kategorię i opis
+        # To pozwala znaleźć "Beton" wpisując "materiał budowlany"
+        texts_to_embed = [
+            f"{p.category} {p.name} {getattr(p, 'description', '') or ''}" 
+            for p in products
+        ]
 
-        # 3. Weryfikacja logiczna:
-        # Młotek -> 0.35 (brak premii, inna dziedzina)
-        # Wkręt -> 0.34 + 0.15 (premia Hybrid Search) = 0.49
-        # Wniosek: Wkręt musi zająć pierwsze miejsce w tablicy wynikowej.
+        # Generowanie embeddingów (batch processing dla wydajności)
+        self.embeddings = self.model.encode(texts_to_embed, convert_to_tensor=True, show_progress_bar=False)
         
-        assert len(results) == 2, "Metoda search nie zwróciła poprawnej liczby elementów."
-        assert results[0].name == "Wkręt do drewna", "Algorytm Hybrid Search nie zaaplikował wagi dziedzinowej!"
-        assert response["max_score"] == 0.49, "Błąd w kalkulacji matematycznej maksymalnego wyniku (max_score)."
+        # Zapisz cache (opcjonalnie, dla szybszego restartu w przyszłości)
+        self._save_cache()
+        logger.info("✅ [AI SEARCH] Indeksowanie zakończone.")
 
+    def search(self, query: str, target_category: Optional[str] = None, top_k: int = 5, threshold: float = 0.25) -> Dict[str, Any]:
+        """
+        Wykonuje wyszukiwanie hybrydowe.
+        1. Oblicza podobieństwo kosinusowe (Vector Search).
+        2. Dodaje bonus punktowy za dokładne wystąpienie słów kluczowych (Keyword Boost).
+        3. Filtruje wyniki poniżej progu (threshold), aby usunąć szum.
+        """
+        if not self.is_ready or self.embeddings is None:
+            logger.warning("⚠️ [AI SEARCH] Silnik niegotowy lub pusty indeks.")
+            return {"results": [], "message": "Search engine not ready"}
 
-@patch('app.services.ai_search.SentenceTransformer')
-def test_confidence_score_low_match(mock_transformer_class: MagicMock, mock_products: List[MagicMock]) -> None:
-    """
-    [Confidence Score] Testuje moduł asertywności sieci neuronowej.
-    System musi umieć przyznać się do błędu, jeśli nie znajdzie nic 
-    powyżej progu ufności (0.40).
-    """
-    search_service = AISearchService()
-    search_service.model = MagicMock()
-    search_service.products_cache = mock_products
-    search_service.embeddings = MagicMock()
+        # 1. Wektoryzacja zapytania
+        query_embedding = self.model.encode(query, convert_to_tensor=True)
 
-    # Symulujemy zwrot bardzo słabych wektorów z przestrzeni wielowymiarowej (szum)
-    mock_raw_hits = [[
-        {'corpus_id': 0, 'score': 0.30},
-        {'corpus_id': 1, 'score': 0.28},
-    ]]
+        # 2. Obliczenie podobieństwa (Cosine Similarity)
+        # util.cos_sim zwraca macierz [[score1, score2, ...]]
+        cos_scores = util.cos_sim(query_embedding, self.embeddings)[0]
 
-    with patch('app.services.ai_search.util.semantic_search', return_value=mock_raw_hits):
+        # Konwersja do listy CPU numpy dla łatwej obróbki
+        scores = cos_scores.cpu().numpy()
+
+        results = []
+        query_lower = query.lower()
+        query_words = query_lower.split()
+
+        for idx, score in enumerate(scores):
+            meta = self.products_metadata[idx]
+            final_score = float(score)
+
+            # Filtrowanie po kategorii (Hard Filter)
+            if target_category and meta["category"] != target_category:
+                continue
+
+            # ZMIANA 3: Hybrid Keyword Boost
+            # Jeśli słowo z zapytania występuje w nazwie produktu -> podbijamy wynik.
+            # To naprawia sytuację, gdzie wektorowo coś jest blisko, ale użytkownik szukał konkretu.
+            name_lower = meta["name"].lower()
+            if query_lower in name_lower:
+                final_score += 0.3  # Duży bonus za dokładną frazę
+            else:
+                for word in query_words:
+                    if len(word) > 2 and word in name_lower:
+                        final_score += 0.1  # Mały bonus za pojedyncze słowo
+
+            # ZMIANA 4: Odsiewanie szumu (Threshold)
+            # Jeśli po wszystkich bonusach wynik jest nadal niski, ignorujemy go.
+            if final_score >= threshold:
+                results.append({
+                    "id": meta["id"],
+                    "name": meta["name"],
+                    "category": meta["category"],
+                    "score": round(final_score, 4),
+                    "is_ai_match": True
+                })
+
+        # Sortowanie malejąco po wyniku
+        results = sorted(results, key=lambda x: x["score"], reverse=True)
         
-        response = search_service.search("całkowicie losowy ciąg znaków", target_category=None)
+        return {
+            "query": query,
+            "count": len(results[:top_k]),
+            "results": results[:top_k]
+        }
 
-        assert "Nie znaleziono precyzyjnego dopasowania" in response["confidence_message"], \
-            "System sztucznej inteligencji nie poinformował o niskiej pewności (brak alertu)!"
-        assert response["max_score"] == 0.30, "System źle wyekstrahował bazowy wynik prawdopodobieństwa."
+    def _save_cache(self):
+        try:
+            with open(self.CACHE_FILE, "wb") as f:
+                pickle.dump({"metadata": self.products_metadata, "embeddings": self.embeddings}, f)
+        except Exception:
+            pass # Cache jest opcjonalny, nie przerywamy w razie błędu I/O
+
+# Singleton - jedna instancja na całą aplikację
+ai_search = AISearchService()

@@ -44,18 +44,37 @@ async def lifespan(app: FastAPI):
     models.Base.metadata.create_all(bind=database.engine)
     db = database.SessionLocal()
     try:
-        logger.info("🧹 [SYSTEM] Sanacja bazy: Zamykanie przedawnionych zamówień-widm...")
+        now = datetime.now()
+        logger.info(f"🧹 [SYSTEM] Sanacja bazy ({now.strftime('%Y-%m-%d %H:%M')}): Weryfikacja zaległych dostaw...")
+
+        # FORCE DELIVERY ON STARTUP (STARTUP RECOVERY)
+        # Jeśli serwer był wyłączony, a dostawy "minęły" w międzyczasie -> odbieramy je teraz.
         stale_orders = db.query(models.Order).filter(
             models.Order.status == "ordered",
-            models.Order.estimated_delivery < datetime.now()
+            models.Order.estimated_delivery < now
         ).all()
         
+        delivered_count = 0
         for so in stale_orders:
-            so.status = "delivered"
+            if so.product:
+                so.product.current_stock += int(so.quantity)
+                so.status = "delivered"
+                delivered_count += 1
+        
+        # Anulowanie przeterminowanych blokad (jeśli nikt nie zaakceptował na czas)
+        stale_pending = db.query(models.Order).filter(
+            models.Order.status == "pending_approval",
+            models.Order.estimated_delivery < now
+        ).all()
+        for sp in stale_pending:
+            sp.status = "cancelled"
             
         db.commit()
-        if stale_orders:
-            logger.info(f"✅ [SYSTEM] Oczyszczono {len(stale_orders)} rekordów.")
+        
+        if delivered_count > 0:
+            logger.info(f"🚚 [SYSTEM] Odebrano zaległe dostawy podczas startupu: {delivered_count}.")
+        else:
+            logger.info("✅ [SYSTEM] Brak zaległych dostaw przy starcie.")
 
         logger.info("🧠 [SYSTEM] Inicjalizacja modułów AI...")
         products = db.query(models.Product).all()
@@ -78,7 +97,7 @@ async def lifespan(app: FastAPI):
 app = FastAPI(
     title="Procurement Pro ERP - Intelligent Sourcing System",
     description="Zaawansowany system ERP z modułami AI i Digital Twin.",
-    version="5.6.3",
+    version="5.6.8",
     docs_url="/docs",
     lifespan=lifespan
 )
@@ -108,7 +127,8 @@ class PDFOrderReport(FPDF):
     def footer(self) -> None:
         self.set_y(-25)
         self.set_font('Arial', 'I', 8)
-        date_str = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        # Używamy effective_date dla spójności
+        date_str = simulator.effective_date.strftime("%Y-%m-%d %H:%M:%S")
         self.cell(0, 10, f'Dokument wygenerowany systemowo: {date_str} | Strona {self.page_no()}/{{nb}}', 0, 0, 'C')
 
     def add_order_details(self, order: models.Order, product: models.Product, supplier: models.Supplier) -> None:
@@ -203,6 +223,9 @@ def create_order(order_in: schemas.OrderCreate, db: Session = Depends(get_db)) -
 
     order_status = "pending_approval" if is_anomaly or total_value > 15000 else "ordered"
 
+    # Używamy bezpiecznej daty operacyjnej (Hybrid Clock)
+    current_op_date = simulator.effective_date
+
     new_order = models.Order(
         id=f"ORD-{uuid.uuid4().hex[:8].upper()}",
         product_id=p.id,
@@ -210,8 +233,8 @@ def create_order(order_in: schemas.OrderCreate, db: Session = Depends(get_db)) -
         quantity=order_in.quantity,
         total_price=total_value,
         status=order_status,
-        created_at=simulator.current_date,
-        estimated_delivery=simulator.current_date + timedelta(days=p.lead_time_days),
+        created_at=current_op_date,
+        estimated_delivery=current_op_date + timedelta(days=p.lead_time_days),
         payment_terms_days=best_contract.payment_terms_days if best_contract else 30,
         order_type="KOSZT/JIT",
         delay_days=0,
@@ -365,6 +388,9 @@ def get_ai_predictions(limit: int = 100, db: Session = Depends(get_db)) -> List[
     active_orders = db.query(models.Order).filter(
         models.Order.status.in_(["ordered", "pending_approval"])
     ).all()
+
+    # Używamy zsynchronizowanej daty dla predykcji
+    op_date = simulator.effective_date
 
     for p in products:
         burn_rate = max(p.average_daily_consumption or 0.5, 0.5)

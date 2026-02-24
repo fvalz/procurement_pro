@@ -16,8 +16,7 @@ logger = logging.getLogger(__name__)
 class LogisticsSimulator:
     """
     Cyfrowy Bliźniak (Digital Twin) łańcucha dostaw.
-    Implementuje probabilistyczny model wyliczania zapasów bezpieczeństwa (Safety Stock)
-    oraz lekką symulację Monte Carlo do estymacji ryzyka (Stockout Probability).
+    Zarządza czasem symulacji, konsumpcją materiałów i automatyzacją zamówień.
     """
     def __init__(self) -> None:
         self.is_running: bool = False
@@ -25,9 +24,16 @@ class LogisticsSimulator:
         self.events: List[Dict[str, Any]] = []
         self.ema_alpha: float = 0.03 
 
+    @property
+    def effective_date(self) -> datetime:
+        """
+        Zwraca datę operacyjną. Zabezpiecza przed cofaniem się czasu względem zegara systemowego.
+        """
+        return max(self.current_date, datetime.now())
+
     def get_status(self) -> Dict[str, Any]:
         return {
-            "current_date": self.current_date.strftime("%Y-%m-%d"),
+            "current_date": self.effective_date.strftime("%Y-%m-%d"),
             "is_running": self.is_running,
             "events": self.events[:20] 
         }
@@ -36,11 +42,11 @@ class LogisticsSimulator:
         icon_map = {
             "bot": "🤖", "warning": "🚨", "error": "❌", "success": "✅", 
             "info": "📦", "negotiate": "🤝", "truck": "🚚", "bandage": "🩹",
-            "math": "📊"
+            "math": "📊", "check": "📋"
         }
         self.events.insert(0, {
             "id": random.randint(1000, 99999),
-            "date": self.current_date.strftime("%Y-%m-%d"),
+            "date": self.effective_date.strftime("%Y-%m-%d"),
             "message": message,
             "type": type,
             "icon": icon_map.get(type, "ℹ️")
@@ -49,22 +55,13 @@ class LogisticsSimulator:
             self.events.pop()
 
     def run_monte_carlo_stockout_risk(self, current_stock: float, daily_burn: float, lead_time: int, iterations: int = 100) -> float:
-        """
-        Monte Carlo Lite: Wykonuje 100 szybkich przebiegów symulacyjnych.
-        Losuje czas dostawy z rozkładu Gaussa i zwraca procentowe prawdopodobieństwo
-        wyczerpania zapasów (Stockout) przed przyjazdem transportu.
-        """
         if current_stock <= 0:
             return 100.0
             
         stockouts = 0
         for _ in range(iterations):
-            # Stochastyczna symulacja czasu dostawy (średnia=LT, odchylenie=1.5 dnia)
             simulated_lt = max(1.0, random.gauss(float(lead_time), 1.5))
-            
-            # Stochastyczna symulacja popytu w tym czasie (dodatkowa wariancja +/- 15%)
             simulated_demand = daily_burn * simulated_lt * random.uniform(0.85, 1.15)
-            
             if current_stock < simulated_demand:
                 stockouts += 1
                 
@@ -74,6 +71,7 @@ class LogisticsSimulator:
         logger.info("🚀 Cyfrowy Bliźniak (Digital Twin) uruchomiony.")
         db = database.SessionLocal()
         try:
+            # Synchronizacja czasu przy starcie
             last_order = db.query(models.Order).filter(models.Order.created_at.isnot(None)).order_by(desc(models.Order.created_at)).first()
             if last_order and last_order.created_at > datetime.now():
                 self.current_date = last_order.created_at
@@ -98,13 +96,54 @@ class LogisticsSimulator:
             await asyncio.sleep(1.5)
 
     def run_day_cycle(self, db: Session) -> None:
+        # Przesunięcie czasu o 1 dzień
         self.current_date += timedelta(days=1)
+        op_date = self.effective_date
         
-        # 1. Przetwarzanie zamówień w drodze i generowanie opóźnień stochastycznych
-        pending_orders = db.query(models.Order).filter(models.Order.status == "ordered").all()
+        # --- 1. PROTOKÓŁ CATCH-UP (NADRABIANIE DOSTAW) ---
+        # Wyszukujemy wszystkie zamówienia, których termin dostawy minął lub jest dzisiaj.
+        # Niezależnie od opóźnień, jeśli data nadeszła -> towar wchodzi na stan.
+        
+        hanging_deliveries = db.query(models.Order).filter(
+            models.Order.status == "ordered",
+            models.Order.estimated_delivery <= op_date
+        ).all()
+        
+        processed_count = 0
+        for order in hanging_deliveries:
+            p = order.product
+            if p:
+                # AKTUALIZACJA STOCKU (Kluczowy moment)
+                p.current_stock += int(order.quantity)
+                order.status = "delivered"
+                
+                # Logika powiadomień
+                days_late = (op_date - order.estimated_delivery).days
+                if days_late > 1:
+                    # Jeśli system "przegapił" dostawę o kilka dni
+                    self.log_event(f"📋 NADROBIONO: {p.name} (Zaległość {days_late} dni)", "check")
+                else:
+                    # Standardowa dostawa w terminie
+                    if getattr(order, 'order_type', '') == 'EMERGENCY':
+                        self.log_event(f"🩹 RATUNEK: Luka {p.name} załatana.", "success")
+                    else:
+                        self.log_event(f"🚚 Odebrano transport (JIT): {p.name}", "truck")
+                processed_count += 1
+                
+        if processed_count > 0:
+            db.commit() # Zatwierdzamy stan magazynowy PRZED analizą zapotrzebowania
 
-        for order in pending_orders:
+        # --- 2. SYMULACJA OPÓŹNIEŃ DLA PRZYSZŁYCH DOSTAW ---
+        # Opóźniamy tylko te, które są jeszcze w drodze (data > op_date)
+        future_orders = db.query(models.Order).filter(
+            models.Order.status == "ordered",
+            models.Order.estimated_delivery > op_date
+        ).all()
+
+        for order in future_orders:
+            # Emergency nigdy się nie spóźnia
             if getattr(order, 'delay_days', 0) == 0 and getattr(order, 'order_type', '') != 'EMERGENCY':
+                # 15% szans na losowe opóźnienie
                 if random.random() > 0.85:
                     delay = random.randint(3, 6) 
                     order.delay_days = delay 
@@ -112,24 +151,7 @@ class LogisticsSimulator:
                     if order.product:
                         self.log_event(f"⚠️ LOGISTYKA: Zator na trasie {order.product.name} (+{delay} dni)!", "warning")
 
-        # 2. Odbiór dostaw
-        arriving_orders = db.query(models.Order).filter(
-            models.Order.status == "ordered",
-            models.Order.estimated_delivery <= self.current_date
-        ).all()
-
-        for order in arriving_orders:
-            p = order.product
-            if p:
-                p.current_stock += int(order.quantity)
-                order.status = "delivered"
-                
-                if getattr(order, 'order_type', '') == 'EMERGENCY':
-                    self.log_event(f"🩹 RATUNEK: Luka {p.name} załatana.", "success")
-                else:
-                    self.log_event(f"🚚 Odebrano transport (JIT): {p.name}", "truck")
-
-        # 3. Konsumpcja materiałów i analityka predykcyjna (MRP)
+        # --- 3. KONSUMPCJA I ZAMAWIANIE (MRP) ---
         products = db.query(models.Product).all()
         total_stock_value = 0
         total_consumption = 0
@@ -138,16 +160,17 @@ class LogisticsSimulator:
             demand_spike = 1.0
             current_avg = max(p.average_daily_consumption or 0.0, 1.0)
             
-            # Wstrzykiwanie szumu popytowego (Demand Noise)
+            # Szum popytowy
             if random.random() > 0.94: 
                 demand_spike = random.uniform(1.8, 3.0) 
 
             raw_burn = max(1.0, random.gauss(current_avg, current_avg * 0.2)) * demand_spike
             daily_burn = int(math.ceil(raw_burn))
 
-            # Aktualizacja wygładzonej średniej kroczącej (EMA)
+            # Aktualizacja EMA (średniej kroczącej)
             p.average_daily_consumption = (daily_burn * self.ema_alpha) + (current_avg * (1 - self.ema_alpha))
 
+            # Zużycie materiału
             if p.current_stock > 0:
                 actual_burn = min(p.current_stock, daily_burn)
                 p.current_stock -= actual_burn
@@ -158,6 +181,7 @@ class LogisticsSimulator:
             
             total_stock_value += (p.current_stock * p.unit_cost)
 
+            # Analiza zapasów
             avg_burn = max(p.average_daily_consumption or 1.0, 1.0) 
             physical_days_left = p.current_stock / avg_burn
             lead_time = p.lead_time_days or 7
@@ -165,20 +189,24 @@ class LogisticsSimulator:
             ordered_today = False
 
             # --- RATUNKOWY PROTOKÓŁ ZAMÓWIEŃ (Emergency) ---
+            # Dzięki sekcji Catch-Up powyżej, p.current_stock jest aktualny.
+            # Jeśli dostawa weszła, physical_days_left wzrosło i ten warunek się nie spełni.
             if physical_days_left <= 1.2:
+                # Sprawdzamy czy już coś jedzie
                 next_order = db.query(models.Order).filter(
                     models.Order.product_id == p.id,
                     models.Order.status == "ordered"
                 ).order_by(models.Order.estimated_delivery.asc()).first()
 
-                days_until_next = (next_order.estimated_delivery - self.current_date).days if next_order else 999
+                days_until_next = (next_order.estimated_delivery - op_date).days if next_order else 999
 
+                # Jeśli nic nie jedzie lub będzie za długo -> zamawiamy Emergency
                 if days_until_next > 1:
                     gap = min(7, days_until_next - int(physical_days_left) + 1)
                     self._create_order(db, p, inventory_position=p.current_stock, is_emergency=True, gap_days=gap)
                     ordered_today = True
 
-            # --- IMPLEMENTACJA PROBABILISTYCZNEGO SAFETY STOCK ---
+            # --- STANDARDOWE ZAMAWIANIE (JIT / Safety Stock) ---
             if not ordered_today:
                 incoming_stock = db.query(func.sum(models.Order.quantity)).filter(
                     models.Order.product_id == p.id,
@@ -187,29 +215,21 @@ class LogisticsSimulator:
 
                 inventory_position = p.current_stock + incoming_stock
                 
-                # Z-score = 1.65 (dla 95% poziomu obsługi klienta / Service Level)
                 Z_SCORE = 1.65
-                # Sigma LT = 1.5 dnia (odchylenie standardowe czasu dostawy przyjęte w module Gaussa)
                 SIGMA_LT = 1.5 
-                
-                # Wzór: SS = Z * Sigma_LT * D_avg
                 safety_stock = Z_SCORE * SIGMA_LT * avg_burn
-                
-                # Punkt zamawiania: Popyt w czasie oczekiwania + Zapas Bezpieczeństwa
                 reorder_point = (avg_burn * lead_time) + safety_stock
 
                 if inventory_position < reorder_point:
-                    # Przed zamówieniem uruchamiamy symulację Monte Carlo
                     risk_pct = self.run_monte_carlo_stockout_risk(p.current_stock, avg_burn, lead_time)
-                    
                     if risk_pct > 15.0:
                         self.log_event(f"📊 Monte Carlo: Ryzyko braku {p.name} wynosi {risk_pct:.1f}%", "math")
-                        
                     self._create_order(db, p, inventory_position=inventory_position, is_emergency=False)
 
+        # Zapis statystyk dziennych
         try:
             stat_entry = models.DailyStats(
-                date=self.current_date,
+                date=op_date.date(),
                 total_inventory_value=total_stock_value,
                 total_orders_count=total_consumption
             )
@@ -224,6 +244,9 @@ class LogisticsSimulator:
         contract = db.query(models.Contract).filter(models.Contract.product_id == product.id, models.Contract.is_active == True).first()
         supplier_id = contract.supplier_id if contract else 1
         base_price = contract.price if contract else (product.unit_cost or 50.0)
+        
+        # Używamy effective_date, aby nie tworzyć zamówień z przeszłości
+        creation_date = self.effective_date
 
         if is_emergency:
             qty = max(5, int(math.ceil(avg_burn * (gap_days or 5))))
@@ -234,7 +257,6 @@ class LogisticsSimulator:
             cycle_days = 14 
             target_coverage = (product.lead_time_days or 7) + cycle_days
             qty = max(15, int(math.ceil(avg_burn * target_coverage)))
-            
             price = base_price
             lt = product.lead_time_days or 7
             s_strategy = "KOSZT/JIT"
@@ -247,8 +269,8 @@ class LogisticsSimulator:
             total_price=qty * price,
             status="ordered",
             order_type=s_strategy, 
-            created_at=self.current_date,
-            estimated_delivery=self.current_date + timedelta(days=lt),
+            created_at=creation_date,
+            estimated_delivery=creation_date + timedelta(days=lt),
             payment_terms_days=contract.payment_terms_days if contract else 14,
             delay_days=0
         )
