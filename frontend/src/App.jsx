@@ -8,7 +8,8 @@ import {
     Repeat, MessageSquare, Send, Settings, Activity, Terminal, 
     Shield, DollarSign, Zap, ShieldAlert, PieChart as PieIcon,
     AlertTriangle, ArrowRight, Layers, Gavel, Wallet, Eye, 
-    Truck, BarChart as BarIcon, Briefcase, Handshake, BrainCircuit
+    Truck, BarChart as BarIcon, Briefcase, Handshake, BrainCircuit,
+    ClipboardCheck, ThumbsUp, ThumbsDown  // nowe ikony
 } from 'lucide-react'
 import { 
     AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip, 
@@ -39,7 +40,7 @@ function App() {
   const [searchQuery, setSearchQuery] = useState("")
   const [selectedFile, setSelectedFile] = useState(null)
   const [selectedOrder, setSelectedOrder] = useState(null)
-  const [selectedIntervention, setSelectedIntervention] = useState(null) // NOWY STAN DLA XAI
+  const [selectedIntervention, setSelectedIntervention] = useState(null)
   const [showLowStockOnly, setShowLowStockOnly] = useState(false)
 
   const API_URL = 'http://127.0.0.1:8000'
@@ -51,7 +52,7 @@ function App() {
     const interval = setInterval(() => {
         fetchSimulationStatus()
         if (activeTab === 'market') fetchProducts()
-        if (activeTab === 'orders') fetchOrders()
+        if (activeTab === 'orders' || activeTab === 'approvals') fetchOrders()
         if (activeTab === 'analytics') { fetchAnalyticsDashboard(); fetchHistory(); }
         if (activeTab === 'forecast') fetchPredictions()
     }, 2000) 
@@ -72,6 +73,27 @@ function App() {
   const fetchAnalyticsDashboard = async () => { try { const res = await axios.get(`${API_URL}/analytics/dashboard`); setAnalyticsData(res.data) } catch (e) {} }
   const fetchScenarios = async () => { try { const res = await axios.get(`${API_URL}/analytics/what-if?delay_days=${delayDays}&demand_spike=${demandSpike}`); setScenarios(res.data) } catch (e) {} }
   const fetchSimulationStatus = async () => { try { const res = await axios.get(`${API_URL}/simulation/status`); setSimulationStatus(res.data) } catch (e) {} }
+
+  // ==========================================
+  // 3. FUNKCJE AKCEPTACJI/ODRZUCANIA
+  // ==========================================
+  const handleApproveOrder = async (orderId) => {
+    try {
+      await axios.put(`${API_URL}/orders/${orderId}/approve`);
+      fetchOrders(); // odświeżenie listy
+    } catch (error) {
+      alert('Błąd podczas akceptacji zamówienia');
+    }
+  };
+
+  const handleRejectOrder = async (orderId) => {
+    try {
+      await axios.put(`${API_URL}/orders/${orderId}/reject`);
+      fetchOrders();
+    } catch (error) {
+      alert('Błąd podczas odrzucania zamówienia');
+    }
+  };
 
   const handleSendMessage = async (e) => {
       e.preventDefault(); if (!chatInput.trim()) return
@@ -108,6 +130,8 @@ function App() {
             <button className={`nav-item ${activeTab === 'market' ? 'active' : ''}`} onClick={() => setActiveTab('market')}><Search size={18}/> Marketplace AI</button>
             <button className={`nav-item ${activeTab === 'forecast' ? 'active' : ''}`} onClick={() => setActiveTab('forecast')}><Boxes size={18}/> Magazyn MRP</button>
             <button className={`nav-item ${activeTab === 'orders' ? 'active' : ''}`} onClick={() => setActiveTab('orders')}><Truck size={18}/> Monitoring</button>
+            {/* NOWA ZAKŁADKA: Do akceptacji */}
+            <button className={`nav-item ${activeTab === 'approvals' ? 'active' : ''}`} onClick={() => setActiveTab('approvals')}><ClipboardCheck size={18}/> Do akceptacji</button>
 
             <p className="nav-group-label" style={{marginTop:'25px'}}>STRATEGIA</p>
             <button className={`nav-item ${activeTab === 'analytics' ? 'active' : ''}`} onClick={() => setActiveTab('analytics')}><BarChart3 size={18}/> Raporty & BI</button>
@@ -130,7 +154,7 @@ function App() {
         {/* TOP HEADER */}
         <header className="top-header">
             <div className="breadcrumb">
-                <h2>{activeTab.toUpperCase()}</h2>
+                <h2>{activeTab === 'approvals' ? 'ZAMÓWIENIA DO AKCEPTACJI' : activeTab.toUpperCase()}</h2>
                 <p>Analiza łańcucha dostaw w czasie rzeczywistym</p>
             </div>
 
@@ -338,7 +362,6 @@ function App() {
                                     <td style={{fontWeight:700}}>{p.product_name}</td>
                                     <td>{p.current_stock}</td>
                                     <td style={{color:'#6366f1', fontWeight:800}}>{p.incoming_stock > 0 ? `+${p.incoming_stock}` : '-'}</td>
-                                    {/* DODANO: OBSŁUGA WIZUALIZACJI OPÓŹNIEŃ (+X d) */}
                                     <td style={{fontSize:'0.85rem', color:'#64748b'}}>
                                         {p.next_delivery_date ? (
                                             <div style={{display:'flex', flexDirection:'column', gap:'2px'}}>
@@ -364,30 +387,118 @@ function App() {
                 </div>
             )}
 
-            {/* MONITORING LOGISTYKI */}
+            {/* MONITORING LOGISTYKI (tylko zamówienia w realizacji) */}
             {activeTab === 'orders' && (
                 <div className="card table-view view-fade" style={{padding:0, overflow:'hidden'}}>
                     <div className="table-header-premium">
-                        <div className="title-group"><h3>Monitorowanie Zamówień</h3><p>Status dostaw i strategii sourcingowych</p></div>
+                        <div className="title-group">
+                            <h3>📦 Zamówienia w realizacji</h3>
+                            <p>Status dostaw i strategii sourcingowych</p>
+                        </div>
                         <button onClick={fetchOrders} className="icon-btn"><RefreshCw size={18}/></button>
                     </div>
                     <table className="premium-table">
                         <thead>
-                            <tr><th>ID DOKUMENTU</th><th>STRATEGIA AI</th><th>PRODUKT</th><th>WARTOŚĆ</th><th>ESTYMACJA DOSTAWY</th><th>STATUS</th></tr>
+                            <tr>
+                                <th>ID DOKUMENTU</th>
+                                <th>STRATEGIA AI</th>
+                                <th>PRODUKT</th>
+                                <th>WARTOŚĆ</th>
+                                <th>ESTYMACJA DOSTAWY</th>
+                                <th>STATUS</th>
+                            </tr>
                         </thead>
                         <tbody>
-                            {orders.map(o => (
+                            {orders.filter(o => o.status === 'ordered').map(o => (
                                 <tr key={o.id} onClick={() => setSelectedOrder(o)} className="row-hover interactive-table">
                                     <td className="id-cell">{o.id}</td>
                                     <td><span className={`strat-tag ${o.order_type === 'KOSZT' ? 'cost' : 'risk'}`}>{o.order_type || 'KOSZT'}</span></td>
                                     <td className="p-name-cell">{o.product?.name}</td>
                                     <td className="val-cell">{o.total_price.toFixed(2)} PLN</td>
                                     <td>{o.estimated_delivery?.split('T')[0]}</td>
-                                    <td><span className={`status-pill-big ${o.status}`}>{o.status === 'ordered' ? 'W DRODZE' : o.status.toUpperCase()}</span></td>
+                                    <td><span className={`status-pill-big ${o.status}`}>W DRODZE</span></td>
                                 </tr>
                             ))}
                         </tbody>
                     </table>
+                </div>
+            )}
+
+            {/* NOWA ZAKŁADKA: ZAMÓWIENIA DO AKCEPTACJI */}
+            {activeTab === 'approvals' && (
+                <div className="view-fade">
+                    {/* Karta z liczbą oczekujących */}
+                    <div className="card" style={{ marginBottom: '25px', background: '#fffbeb', border: '2px solid #fcd34d' }}>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '15px' }}>
+                            <ClipboardCheck size={40} color="#b45309" />
+                            <div>
+                                <h3 style={{ margin: 0, color: '#92400e' }}>Zamówienia oczekujące na decyzję</h3>
+                                <p style={{ fontSize: '2rem', fontWeight: 800, color: '#b45309', margin: '5px 0 0 0' }}>
+                                    {orders.filter(o => o.status === 'pending_approval').length}
+                                </p>
+                            </div>
+                        </div>
+                    </div>
+
+                    {/* Tabela z przyciskami */}
+                    <div className="card" style={{ padding: 0, overflow: 'hidden' }}>
+                        <div className="table-header-premium" style={{ background: '#fffbeb', borderBottom: '2px solid #fcd34d' }}>
+                            <h3 style={{ color: '#92400e', margin: 0 }}>Lista zamówień wymagających akceptacji</h3>
+                        </div>
+                        <table className="premium-table">
+                            <thead>
+                                <tr>
+                                    <th>ID</th>
+                                    <th>Produkt</th>
+                                    <th>Ilość</th>
+                                    <th>Wartość</th>
+                                    <th>Planowana dostawa</th>
+                                    <th>Data wpłynięcia</th>
+                                    <th>Oczekuje (dni)</th>
+                                    <th>Akcje</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                {orders.filter(o => o.status === 'pending_approval').length > 0 ? (
+                                    orders.filter(o => o.status === 'pending_approval').map(o => (
+                                        <tr key={o.id}>
+                                            <td className="id-cell">{o.id}</td>
+                                            <td>{o.product?.name}</td>
+                                            <td>{o.quantity}</td>
+                                            <td>{o.total_price.toFixed(2)} PLN</td>
+                                            <td>{o.estimated_delivery?.split('T')[0]}</td>
+                                            <td>{o.created_at?.split('T')[0]}</td>
+                                            <td>{o.pending_days || 0}</td>
+                                            <td>
+                                                <div style={{ display: 'flex', gap: '8px' }}>
+                                                    <button
+                                                        onClick={() => handleApproveOrder(o.id)}
+                                                        className="action-btn-small"
+                                                        style={{ background: '#10b981', display: 'flex', alignItems: 'center', gap: '5px' }}
+                                                    >
+                                                        <ThumbsUp size={16} /> Zatwierdź
+                                                    </button>
+                                                    <button
+                                                        onClick={() => handleRejectOrder(o.id)}
+                                                        className="action-btn-small"
+                                                        style={{ background: '#ef4444', display: 'flex', alignItems: 'center', gap: '5px' }}
+                                                    >
+                                                        <ThumbsDown size={16} /> Odrzuć
+                                                    </button>
+                                                </div>
+                                            </td>
+                                        </tr>
+                                    ))
+                                ) : (
+                                    <tr>
+                                        <td colSpan="8" style={{ textAlign: 'center', padding: '40px', color: '#64748b' }}>
+                                            Brak zamówień oczekujących na akceptację.
+                                        </td>
+                                    </tr>
+                                )}
+                            </tbody>
+                        </table>
+                    </div>
                 </div>
             )}
 
@@ -603,7 +714,7 @@ function App() {
         .wallet-card { background: var(--sidebar); color: white; }
         .progress-track { height: 12px; background: #1e293b; border-radius: 10px; margin-top: 15px; }
         .progress-fill { height: 100%; background: var(--primary); border-radius: 10px; transition: 1s; }
-        .action-btn-small { padding: 8px 16px; background: var(--sidebar); color: white; border: none; border-radius: 8px; cursor: pointer; font-weight: 700; transition:0.2s; }
+        .action-btn-small { padding: 8px 16px; background: var(--sidebar); color: white; border: none; border-radius: 8px; cursor: pointer; font-weight: 700; transition:0.2s; display: inline-flex; align-items: center; gap: 5px; }
         .action-btn-small:hover { background: var(--primary); }
         .product-tile { background: white; padding: 25px; border-radius: 24px; border: 1px solid #e2e8f0; }
         .buy-btn { width: 100%; padding: 12px; border-radius: 12px; border: none; background: var(--sidebar); color: white; font-weight: 700; cursor: pointer; margin-top: 15px; transition:0.2s;}

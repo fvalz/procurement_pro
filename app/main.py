@@ -48,7 +48,6 @@ async def lifespan(app: FastAPI):
         logger.info(f"🧹 [SYSTEM] Sanacja bazy ({now.strftime('%Y-%m-%d %H:%M')}): Weryfikacja zaległych dostaw...")
 
         # FORCE DELIVERY ON STARTUP (STARTUP RECOVERY)
-        # Jeśli serwer był wyłączony, a dostawy "minęły" w międzyczasie -> odbieramy je teraz.
         stale_orders = db.query(models.Order).filter(
             models.Order.status == "ordered",
             models.Order.estimated_delivery < now
@@ -97,7 +96,7 @@ async def lifespan(app: FastAPI):
 app = FastAPI(
     title="Procurement Pro ERP - Intelligent Sourcing System",
     description="Zaawansowany system ERP z modułami AI i Digital Twin.",
-    version="5.6.8",
+    version="5.6.9",
     docs_url="/docs",
     lifespan=lifespan
 )
@@ -127,7 +126,6 @@ class PDFOrderReport(FPDF):
     def footer(self) -> None:
         self.set_y(-25)
         self.set_font('Arial', 'I', 8)
-        # Używamy effective_date dla spójności
         date_str = simulator.effective_date.strftime("%Y-%m-%d %H:%M:%S")
         self.cell(0, 10, f'Dokument wygenerowany systemowo: {date_str} | Strona {self.page_no()}/{{nb}}', 0, 0, 'C')
 
@@ -223,7 +221,6 @@ def create_order(order_in: schemas.OrderCreate, db: Session = Depends(get_db)) -
 
     order_status = "pending_approval" if is_anomaly or total_value > 15000 else "ordered"
 
-    # Używamy bezpiecznej daty operacyjnej (Hybrid Clock)
     current_op_date = simulator.effective_date
 
     new_order = models.Order(
@@ -239,7 +236,8 @@ def create_order(order_in: schemas.OrderCreate, db: Session = Depends(get_db)) -
         order_type="KOSZT/JIT",
         delay_days=0,
         is_anomaly=is_anomaly,
-        anomaly_score=raw_score
+        anomaly_score=raw_score,
+        pending_days=0  # nowe pole
     )
 
     db.add(new_order)
@@ -277,6 +275,7 @@ def approve_order(order_id: str, db: Session = Depends(get_db)) -> Dict[str, str
     if not order: 
         raise HTTPException(status_code=404)
     order.status = "ordered"
+    order.pending_days = 0   # reset licznika oczekiwania
     db.commit()
     return {"status": "success"}
 
@@ -286,6 +285,7 @@ def reject_order(order_id: str, db: Session = Depends(get_db)) -> Dict[str, str]
     if not order: 
         raise HTTPException(status_code=404)
     order.status = "cancelled"
+    # opcjonalnie można też wyzerować pending_days, ale nie jest to konieczne
     db.commit()
     return {"status": "success"}
 
@@ -389,7 +389,6 @@ def get_ai_predictions(limit: int = 100, db: Session = Depends(get_db)) -> List[
         models.Order.status.in_(["ordered", "pending_approval"])
     ).all()
 
-    # Używamy zsynchronizowanej daty dla predykcji
     op_date = simulator.effective_date
 
     for p in products:

@@ -265,7 +265,9 @@ def init_db():
                 "total_price": round(qty * final_price_unit, 2),
                 "status": "delivered",
                 "created_at": date,
-                "is_anomaly": is_anomaly_scenario
+                "is_anomaly": is_anomaly_scenario,
+                # NOWE POLE: pending_days (dla historycznych zamówień ustawiamy 0)
+                "pending_days": 0
             }
             
             if hasattr(models.Order, 'order_type'):

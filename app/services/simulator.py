@@ -16,20 +16,17 @@ logger = logging.getLogger(__name__)
 class LogisticsSimulator:
     """
     Cyfrowy Bliźniak (Digital Twin) łańcucha dostaw.
-    Zarządza czasem symulacji, konsumpcją materiałów i automatyzacją zamówień.
+    Wersja: 3.1 (Pending orders delay handling)
     """
     def __init__(self) -> None:
         self.is_running: bool = False
         self.current_date: datetime = datetime.now()
         self.events: List[Dict[str, Any]] = []
-        self.ema_alpha: float = 0.03 
+        self.ema_alpha: float = 0.05 
 
     @property
     def effective_date(self) -> datetime:
-        """
-        Zwraca datę operacyjną. Zabezpiecza przed cofaniem się czasu względem zegara systemowego.
-        """
-        return max(self.current_date, datetime.now())
+        return self.current_date
 
     def get_status(self) -> Dict[str, Any]:
         return {
@@ -55,27 +52,22 @@ class LogisticsSimulator:
             self.events.pop()
 
     def run_monte_carlo_stockout_risk(self, current_stock: float, daily_burn: float, lead_time: int, iterations: int = 100) -> float:
-        if current_stock <= 0:
-            return 100.0
-            
+        if current_stock <= 0: return 100.0
         stockouts = 0
         for _ in range(iterations):
-            simulated_lt = max(1.0, random.gauss(float(lead_time), 1.5))
-            simulated_demand = daily_burn * simulated_lt * random.uniform(0.85, 1.15)
-            if current_stock < simulated_demand:
-                stockouts += 1
-                
+            simulated_lt = max(1.0, random.gauss(float(lead_time), 1.0))
+            simulated_demand = daily_burn * simulated_lt * random.uniform(0.9, 1.1)
+            if current_stock < simulated_demand: stockouts += 1
         return (stockouts / iterations) * 100.0
 
     async def run_simulation_loop(self) -> None:
         logger.info("🚀 Cyfrowy Bliźniak (Digital Twin) uruchomiony.")
         db = database.SessionLocal()
         try:
-            # Synchronizacja czasu przy starcie
             last_order = db.query(models.Order).filter(models.Order.created_at.isnot(None)).order_by(desc(models.Order.created_at)).first()
             if last_order and last_order.created_at > datetime.now():
                 self.current_date = last_order.created_at
-                logger.info(f"⏳ Synchronizacja czasu z bazą: {self.current_date.strftime('%Y-%m-%d')}")
+                logger.info(f"⏳ Wznowienie symulacji od daty: {self.current_date.strftime('%Y-%m-%d')}")
             else:
                 self.current_date = datetime.now()
         except Exception:
@@ -95,193 +87,198 @@ class LogisticsSimulator:
                     db.close()
             await asyncio.sleep(1.5)
 
+    def _parse_date_safe(self, date_obj):
+        if date_obj is None:
+            return None
+        if isinstance(date_obj, datetime):
+            return date_obj
+        if isinstance(date_obj, str):
+            try:
+                return datetime.fromisoformat(date_obj.replace(" ", "T"))
+            except ValueError:
+                return None
+        if hasattr(date_obj, 'day') and not hasattr(date_obj, 'hour'):
+            return datetime.combine(date_obj, datetime.min.time())
+        return None
+
     def run_day_cycle(self, db: Session) -> None:
-        # Przesunięcie czasu o 1 dzień
         self.current_date += timedelta(days=1)
         op_date = self.effective_date
         
-        # --- 1. PROTOKÓŁ CATCH-UP (NADRABIANIE DOSTAW) ---
-        # Wyszukujemy wszystkie zamówienia, których termin dostawy minął lub jest dzisiaj.
-        # Niezależnie od opóźnień, jeśli data nadeszła -> towar wchodzi na stan.
-        
-        hanging_deliveries = db.query(models.Order).filter(
-            models.Order.status == "ordered",
-            models.Order.estimated_delivery <= op_date
-        ).all()
-        
+        end_of_sim_day = op_date.replace(hour=23, minute=59, second=59)
+
+        # --- 1. PANCERNY CATCH-UP (NAPRAWA DOSTAW) ---
+        active_orders = db.query(models.Order).filter(models.Order.status == "ordered").all()
         processed_count = 0
-        for order in hanging_deliveries:
-            p = order.product
-            if p:
-                # AKTUALIZACJA STOCKU (Kluczowy moment)
-                p.current_stock += int(order.quantity)
+        
+        for order in active_orders:
+            should_deliver = False
+            est = self._parse_date_safe(order.estimated_delivery)
+            
+            if est is None:
+                should_deliver = True
+            elif est <= end_of_sim_day:
+                should_deliver = True
+
+            if should_deliver:
+                qty = int(order.quantity)
+                db.query(models.Product).filter(models.Product.id == order.product_id).update(
+                    {models.Product.current_stock: models.Product.current_stock + qty}
+                )
                 order.status = "delivered"
                 
-                # Logika powiadomień
-                days_late = (op_date - order.estimated_delivery).days
-                if days_late > 1:
-                    # Jeśli system "przegapił" dostawę o kilka dni
-                    self.log_event(f"📋 NADROBIONO: {p.name} (Zaległość {days_late} dni)", "check")
-                else:
-                    # Standardowa dostawa w terminie
-                    if getattr(order, 'order_type', '') == 'EMERGENCY':
-                        self.log_event(f"🩹 RATUNEK: Luka {p.name} załatana.", "success")
-                    else:
-                        self.log_event(f"🚚 Odebrano transport (JIT): {p.name}", "truck")
-                processed_count += 1
+                days_diff = (op_date - (est or op_date)).days
+                p_name = order.product.name if order.product else "Produkt"
                 
+                if days_diff > 1:
+                    self.log_event(f"🧹 CATCH-UP: Wymuszono dostawę {p_name} (+{qty})", "check")
+                elif getattr(order, 'order_type', '') == 'EMERGENCY':
+                    self.log_event(f"🩹 RATUNEK: Dostarczono {p_name} (+{qty})", "success")
+                else:
+                    self.log_event(f"🚚 JIT: Dostawa {p_name} (+{qty}) przyjęta.", "truck")
+                
+                processed_count += 1
+        
         if processed_count > 0:
-            db.commit() # Zatwierdzamy stan magazynowy PRZED analizą zapotrzebowania
+            db.commit()
+            db.expire_all()
 
-        # --- 2. SYMULACJA OPÓŹNIEŃ DLA PRZYSZŁYCH DOSTAW ---
-        # Opóźniamy tylko te, które są jeszcze w drodze (data > op_date)
-        future_orders = db.query(models.Order).filter(
-            models.Order.status == "ordered",
-            models.Order.estimated_delivery > op_date
+        # --- 1.5 OBSŁUGA ZAMÓWIEŃ OCZEKUJĄCYCH NA AKCEPTACJĘ ---
+        pending_orders = db.query(models.Order).filter(
+            models.Order.status == "pending_approval"
         ).all()
+        for order in pending_orders:
+            if order.estimated_delivery:
+                order.estimated_delivery += timedelta(days=1)
+            order.pending_days = (order.pending_days or 0) + 1
+            if order.product:
+                self.log_event(
+                    f"⏳ Opóźnienie akceptacji: {order.product.name} ({order.pending_days} dni)", 
+                    "warning"
+                )
+        if pending_orders:
+            db.commit()
+            db.expire_all()
 
-        for order in future_orders:
-            # Emergency nigdy się nie spóźnia
+        # --- 2. SYMULACJA ZATORÓW ---
+        remaining_orders = [o for o in active_orders if o.status == "ordered"]
+
+        for order in remaining_orders:
             if getattr(order, 'delay_days', 0) == 0 and getattr(order, 'order_type', '') != 'EMERGENCY':
-                # 15% szans na losowe opóźnienie
                 if random.random() > 0.85:
                     delay = random.randint(3, 6) 
                     order.delay_days = delay 
-                    order.estimated_delivery += timedelta(days=delay)
-                    if order.product:
-                        self.log_event(f"⚠️ LOGISTYKA: Zator na trasie {order.product.name} (+{delay} dni)!", "warning")
+                    est = self._parse_date_safe(order.estimated_delivery)
+                    if est:
+                        order.estimated_delivery = est + timedelta(days=delay)
+                        if order.product:
+                            self.log_event(f"⚠️ LOGISTYKA: Zator {order.product.name} (+{delay} dni)!", "warning")
 
-        # --- 3. KONSUMPCJA I ZAMAWIANIE (MRP) ---
+        # --- 3. MRP ENGINE ---
         products = db.query(models.Product).all()
-        total_stock_value = 0
-        total_consumption = 0
         
+        current_active = db.query(models.Order).filter(
+            models.Order.status == "ordered"
+        ).all()
+        incoming_cache = {}
+        for o in current_active:
+            incoming_cache[o.product_id] = incoming_cache.get(o.product_id, 0) + o.quantity
+
+        total_val = 0
+        total_cons = 0
+
         for p in products:
-            demand_spike = 1.0
-            current_avg = max(p.average_daily_consumption or 0.0, 1.0)
+            avg_cons = max(p.average_daily_consumption or 1.0, 1.0)
+            burn = max(1.0, random.gauss(avg_cons, avg_cons * 0.1))
             
-            # Szum popytowy
-            if random.random() > 0.94: 
-                demand_spike = random.uniform(1.8, 3.0) 
-
-            raw_burn = max(1.0, random.gauss(current_avg, current_avg * 0.2)) * demand_spike
-            daily_burn = int(math.ceil(raw_burn))
-
-            # Aktualizacja EMA (średniej kroczącej)
-            p.average_daily_consumption = (daily_burn * self.ema_alpha) + (current_avg * (1 - self.ema_alpha))
-
-            # Zużycie materiału
-            if p.current_stock > 0:
-                actual_burn = min(p.current_stock, daily_burn)
-                p.current_stock -= actual_burn
-                total_consumption += actual_burn
+            if random.random() > 0.98: burn *= 1.5
             
-            if p.current_stock == 0 and daily_burn > 0:
-                self.log_event(f"POSTÓJ PRODUKCJI: Brak materiału {p.name}!", "error")
+            actual_burn = min(p.current_stock, int(burn))
+            p.current_stock -= actual_burn
+            total_cons += actual_burn
+            total_val += (p.current_stock * p.unit_cost)
             
-            total_stock_value += (p.current_stock * p.unit_cost)
+            p.average_daily_consumption = (actual_burn * 0.1) + (avg_cons * 0.9)
 
-            # Analiza zapasów
-            avg_burn = max(p.average_daily_consumption or 1.0, 1.0) 
-            physical_days_left = p.current_stock / avg_burn
-            lead_time = p.lead_time_days or 7
+            if p.current_stock == 0 and burn > 0:
+                self.log_event(f"BRAK TOWARU: {p.name}", "error")
+
+            days_left = p.current_stock / avg_cons
+            incoming = incoming_cache.get(p.id, 0)
             
-            ordered_today = False
+            next_delivery_date = None
+            prod_orders = [o for o in current_active if o.product_id == p.id]
+            if prod_orders:
+                prod_orders.sort(key=lambda x: str(x.estimated_delivery))
+                next_delivery_date = self._parse_date_safe(prod_orders[0].estimated_delivery)
 
-            # --- RATUNKOWY PROTOKÓŁ ZAMÓWIEŃ (Emergency) ---
-            # Dzięki sekcji Catch-Up powyżej, p.current_stock jest aktualny.
-            # Jeśli dostawa weszła, physical_days_left wzrosło i ten warunek się nie spełni.
-            if physical_days_left <= 1.2:
-                # Sprawdzamy czy już coś jedzie
-                next_order = db.query(models.Order).filter(
-                    models.Order.product_id == p.id,
-                    models.Order.status == "ordered"
-                ).order_by(models.Order.estimated_delivery.asc()).first()
+            days_until_delivery = 999
+            if next_delivery_date:
+                days_until_delivery = (next_delivery_date - op_date).days
 
-                days_until_next = (next_order.estimated_delivery - op_date).days if next_order else 999
+            ordered = False
+            
+            if days_left <= 0.8:
+                if incoming == 0 or (days_until_delivery > days_left + 1):
+                    gap = 5
+                    self._create_order(db, p, p.current_stock, True, gap)
+                    ordered = True
 
-                # Jeśli nic nie jedzie lub będzie za długo -> zamawiamy Emergency
-                if days_until_next > 1:
-                    gap = min(7, days_until_next - int(physical_days_left) + 1)
-                    self._create_order(db, p, inventory_position=p.current_stock, is_emergency=True, gap_days=gap)
-                    ordered_today = True
-
-            # --- STANDARDOWE ZAMAWIANIE (JIT / Safety Stock) ---
-            if not ordered_today:
-                incoming_stock = db.query(func.sum(models.Order.quantity)).filter(
-                    models.Order.product_id == p.id,
-                    models.Order.status.in_(["ordered", "pending_approval"])
-                ).scalar() or 0
-
-                inventory_position = p.current_stock + incoming_stock
+            if not ordered:
+                inventory_pos = p.current_stock + incoming
+                reorder_point = (avg_cons * (p.lead_time_days or 7)) + (avg_cons * 4.0)
                 
-                Z_SCORE = 1.65
-                SIGMA_LT = 1.5 
-                safety_stock = Z_SCORE * SIGMA_LT * avg_burn
-                reorder_point = (avg_burn * lead_time) + safety_stock
+                if inventory_pos < reorder_point:
+                    self._create_order(db, p, inventory_pos, False)
 
-                if inventory_position < reorder_point:
-                    risk_pct = self.run_monte_carlo_stockout_risk(p.current_stock, avg_burn, lead_time)
-                    if risk_pct > 15.0:
-                        self.log_event(f"📊 Monte Carlo: Ryzyko braku {p.name} wynosi {risk_pct:.1f}%", "math")
-                    self._create_order(db, p, inventory_position=inventory_position, is_emergency=False)
-
-        # Zapis statystyk dziennych
         try:
-            stat_entry = models.DailyStats(
-                date=op_date.date(),
-                total_inventory_value=total_stock_value,
-                total_orders_count=total_consumption
-            )
-            db.add(stat_entry)
-        except Exception: 
-            pass
-
+            db.add(models.DailyStats(date=op_date.date(), total_inventory_value=total_val, total_orders_count=total_cons))
+        except: pass
+        
         db.commit()
 
-    def _create_order(self, db: Session, product: models.Product, inventory_position: float, is_emergency: bool = False, gap_days: int = None) -> None:
-        avg_burn = max(product.average_daily_consumption or 1.0, 1.0)
-        contract = db.query(models.Contract).filter(models.Contract.product_id == product.id, models.Contract.is_active == True).first()
+    def _create_order(self, db, product, inv_pos, is_emergency, gap=None):
+        avg = max(product.average_daily_consumption or 1.0, 1.0)
+        contract = db.query(models.Contract).filter(models.Contract.product_id==product.id, models.Contract.is_active==True).first()
+        price = contract.price if contract else product.unit_cost
         supplier_id = contract.supplier_id if contract else 1
-        base_price = contract.price if contract else (product.unit_cost or 50.0)
         
-        # Używamy effective_date, aby nie tworzyć zamówień z przeszłości
-        creation_date = self.effective_date
-
+        date = self.effective_date
+        
         if is_emergency:
-            qty = max(5, int(math.ceil(avg_burn * (gap_days or 5))))
-            price = base_price * 1.5 
-            lt = 1 
-            s_strategy = "EMERGENCY"
+            qty = int(avg * (gap or 3) * 1.5) 
+            lt = 1
+            typ = "EMERGENCY"
+            price *= 1.5
         else:
-            cycle_days = 14 
-            target_coverage = (product.lead_time_days or 7) + cycle_days
-            qty = max(15, int(math.ceil(avg_burn * target_coverage)))
-            price = base_price
+            qty = int(avg * 21)
             lt = product.lead_time_days or 7
-            s_strategy = "KOSZT/JIT"
+            typ = "KOSZT/JIT"
 
-        new_order = models.Order(
+        is_anom = False
+        if not is_emergency:
+            is_anom = anomaly_detector.is_anomaly(qty, qty*price, price)
+
+        status = "pending_approval" if is_anom else "ordered"
+        
+        order = models.Order(
             id=f"AUTO-{uuid.uuid4().hex[:6].upper()}",
             product_id=product.id,
             supplier_id=supplier_id,
             quantity=qty,
-            total_price=qty * price,
-            status="ordered",
-            order_type=s_strategy, 
-            created_at=creation_date,
-            estimated_delivery=creation_date + timedelta(days=lt),
-            payment_terms_days=contract.payment_terms_days if contract else 14,
-            delay_days=0
+            total_price=qty*price,
+            status=status,
+            order_type=typ,
+            created_at=date,
+            estimated_delivery=date + timedelta(days=lt),
+            is_anomaly=is_anom,
+            pending_days=0  # nowe pole
         )
-
-        if not is_emergency and anomaly_detector.is_anomaly(float(qty), float(qty * price), float(price)):
-            new_order.status = "pending_approval"
-            self.log_event(f"🚨 AI Audit: Zablokowano {product.name}", "warning")
-        else:
-            if not is_emergency:
-                self.log_event(f"🤖 Optymalizacja JIT: {product.name}", "bot")
-
-        db.add(new_order)
+        
+        if is_anom: self.log_event(f"🚨 AI: Zablokowano {product.name}", "warning")
+        elif is_emergency: self.log_event(f"🩹 RATUNEK: Zamówiono {product.name}", "bandage")
+        else: self.log_event(f"🤖 JIT: Zamówiono {product.name}", "bot")
+        
+        db.add(order)
 
 simulator = LogisticsSimulator()

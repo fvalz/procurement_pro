@@ -87,6 +87,9 @@ class Order(Base):
     anomaly_score = Column(Float, nullable=True)
     # -----------------------------------------------------------------------
 
+    # --- NOWE POLE: liczba dni oczekiwania na akceptację ---
+    pending_days = Column(Integer, default=0)
+
     product = relationship("Product", back_populates="orders")
     supplier = relationship("Supplier", back_populates="orders")
 

@@ -73,6 +73,7 @@ class Order(OrderBase):
     # --- NOWE POLA ZGODNE Z MODELEM BAZODANOWYM (models.py) ---
     is_anomaly: bool = False
     anomaly_score: Optional[float] = None
+    pending_days: Optional[int] = 0   # <-- DODANE
     
     # --- Metadane analityczne AI doczepiane "w locie" do odpowiedzi API ---
     ai_metadata: Optional[Dict[str, Any]] = Field(
