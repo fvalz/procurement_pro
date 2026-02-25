@@ -9,7 +9,7 @@ import {
     Shield, DollarSign, Zap, ShieldAlert, PieChart as PieIcon,
     AlertTriangle, ArrowRight, Layers, Gavel, Wallet, Eye, 
     Truck, BarChart as BarIcon, Briefcase, Handshake, BrainCircuit,
-    ClipboardCheck, ThumbsUp, ThumbsDown  // nowe ikony
+    ClipboardCheck, ThumbsUp, ThumbsDown
 } from 'lucide-react'
 import { 
     AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip, 
@@ -52,7 +52,7 @@ function App() {
     const interval = setInterval(() => {
         fetchSimulationStatus()
         if (activeTab === 'market') fetchProducts()
-        if (activeTab === 'orders' || activeTab === 'approvals') fetchOrders()
+        if (activeTab === 'orders' || activeTab === 'approvals' || activeTab === 'history') fetchOrders()
         if (activeTab === 'analytics') { fetchAnalyticsDashboard(); fetchHistory(); }
         if (activeTab === 'forecast') fetchPredictions()
     }, 2000) 
@@ -80,7 +80,7 @@ function App() {
   const handleApproveOrder = async (orderId) => {
     try {
       await axios.put(`${API_URL}/orders/${orderId}/approve`);
-      fetchOrders(); // odświeżenie listy
+      fetchOrders();
     } catch (error) {
       alert('Błąd podczas akceptacji zamówienia');
     }
@@ -130,8 +130,9 @@ function App() {
             <button className={`nav-item ${activeTab === 'market' ? 'active' : ''}`} onClick={() => setActiveTab('market')}><Search size={18}/> Marketplace AI</button>
             <button className={`nav-item ${activeTab === 'forecast' ? 'active' : ''}`} onClick={() => setActiveTab('forecast')}><Boxes size={18}/> Magazyn MRP</button>
             <button className={`nav-item ${activeTab === 'orders' ? 'active' : ''}`} onClick={() => setActiveTab('orders')}><Truck size={18}/> Monitoring</button>
-            {/* NOWA ZAKŁADKA: Do akceptacji */}
             <button className={`nav-item ${activeTab === 'approvals' ? 'active' : ''}`} onClick={() => setActiveTab('approvals')}><ClipboardCheck size={18}/> Do akceptacji</button>
+            {/* NOWA ZAKŁADKA: Historia */}
+            <button className={`nav-item ${activeTab === 'history' ? 'active' : ''}`} onClick={() => setActiveTab('history')}><FileText size={18}/> Historia</button>
 
             <p className="nav-group-label" style={{marginTop:'25px'}}>STRATEGIA</p>
             <button className={`nav-item ${activeTab === 'analytics' ? 'active' : ''}`} onClick={() => setActiveTab('analytics')}><BarChart3 size={18}/> Raporty & BI</button>
@@ -154,7 +155,7 @@ function App() {
         {/* TOP HEADER */}
         <header className="top-header">
             <div className="breadcrumb">
-                <h2>{activeTab === 'approvals' ? 'ZAMÓWIENIA DO AKCEPTACJI' : activeTab.toUpperCase()}</h2>
+                <h2>{activeTab === 'approvals' ? 'ZAMÓWIENIA DO AKCEPTACJI' : activeTab === 'history' ? 'HISTORIA ZAMÓWIEŃ' : activeTab.toUpperCase()}</h2>
                 <p>Analiza łańcucha dostaw w czasie rzeczywistym</p>
             </div>
 
@@ -424,10 +425,9 @@ function App() {
                 </div>
             )}
 
-            {/* NOWA ZAKŁADKA: ZAMÓWIENIA DO AKCEPTACJI */}
+            {/* ZAMÓWIENIA DO AKCEPTACJI */}
             {activeTab === 'approvals' && (
                 <div className="view-fade">
-                    {/* Karta z liczbą oczekujących */}
                     <div className="card" style={{ marginBottom: '25px', background: '#fffbeb', border: '2px solid #fcd34d' }}>
                         <div style={{ display: 'flex', alignItems: 'center', gap: '15px' }}>
                             <ClipboardCheck size={40} color="#b45309" />
@@ -440,7 +440,6 @@ function App() {
                         </div>
                     </div>
 
-                    {/* Tabela z przyciskami */}
                     <div className="card" style={{ padding: 0, overflow: 'hidden' }}>
                         <div className="table-header-premium" style={{ background: '#fffbeb', borderBottom: '2px solid #fcd34d' }}>
                             <h3 style={{ color: '#92400e', margin: 0 }}>Lista zamówień wymagających akceptacji</h3>
@@ -499,6 +498,54 @@ function App() {
                             </tbody>
                         </table>
                     </div>
+                </div>
+            )}
+
+            {/* NOWA ZAKŁADKA: HISTORIA ZAMÓWIEŃ (dostarczone) */}
+            {activeTab === 'history' && (
+                <div className="card table-view view-fade" style={{padding:0, overflow:'hidden'}}>
+                    <div className="table-header-premium">
+                        <div className="title-group">
+                            <h3>📜 Historia zamówień</h3>
+                            <p>Zrealizowane dostawy</p>
+                        </div>
+                        <button onClick={fetchOrders} className="icon-btn"><RefreshCw size={18}/></button>
+                    </div>
+                    <table className="premium-table">
+                        <thead>
+                            <tr>
+                                <th>ID DOKUMENTU</th>
+                                <th>STRATEGIA AI</th>
+                                <th>PRODUKT</th>
+                                <th>WARTOŚĆ</th>
+                                <th>DATA DOSTAWY</th>
+                                <th>STATUS</th>
+                                <th>PDF</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            {orders.filter(o => o.status === 'delivered').map(o => (
+                                <tr key={o.id}>
+                                    <td className="id-cell">{o.id}</td>
+                                    <td><span className={`strat-tag ${o.order_type === 'KOSZT' ? 'cost' : 'risk'}`}>{o.order_type || 'KOSZT'}</span></td>
+                                    <td className="p-name-cell">{o.product?.name}</td>
+                                    <td className="val-cell">{o.total_price.toFixed(2)} PLN</td>
+                                    <td>{o.estimated_delivery?.split('T')[0]}</td>
+                                    <td><span className={`status-pill-big ${o.status}`}>DOSTARCZONE</span></td>
+                                    <td>
+                                        <button 
+                                            onClick={() => window.open(`${API_URL}/orders/${o.id}/pdf`)} 
+                                            className="action-btn-small" 
+                                            style={{background: '#6366f1', padding: '5px 10px'}}
+                                            title="Pobierz PDF"
+                                        >
+                                            <Download size={16} />
+                                        </button>
+                                    </td>
+                                </tr>
+                            ))}
+                        </tbody>
+                    </table>
                 </div>
             )}
 

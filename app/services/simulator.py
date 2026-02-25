@@ -10,13 +10,14 @@ from sqlalchemy.orm import Session
 from sqlalchemy import func, desc
 from app import models, database
 from app.services.anomaly_detector import anomaly_detector
+from app.services.pdf_generator import generate_order_pdf   # <-- NOWY IMPORT
 
 logger = logging.getLogger(__name__)
 
 class LogisticsSimulator:
     """
     Cyfrowy Bliźniak (Digital Twin) łańcucha dostaw.
-    Wersja: 3.1 (Pending orders delay handling)
+    Wersja: 3.1 (Pending orders delay handling + PDF generation)
     """
     def __init__(self) -> None:
         self.is_running: bool = False
@@ -125,7 +126,15 @@ class LogisticsSimulator:
                 db.query(models.Product).filter(models.Product.id == order.product_id).update(
                     {models.Product.current_stock: models.Product.current_stock + qty}
                 )
+                
                 order.status = "delivered"
+                
+                # --- GENERUJ PDF ---
+                try:
+                    generate_order_pdf(order)
+                    logger.info(f"📄 PDF wygenerowany dla zamówienia {order.id}")
+                except Exception as e:
+                    logger.error(f"❌ Błąd generowania PDF dla {order.id}: {e}")
                 
                 days_diff = (op_date - (est or op_date)).days
                 p_name = order.product.name if order.product else "Produkt"
@@ -272,7 +281,7 @@ class LogisticsSimulator:
             created_at=date,
             estimated_delivery=date + timedelta(days=lt),
             is_anomaly=is_anom,
-            pending_days=0  # nowe pole
+            pending_days=0
         )
         
         if is_anom: self.log_event(f"🚨 AI: Zablokowano {product.name}", "warning")

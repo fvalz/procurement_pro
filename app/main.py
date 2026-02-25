@@ -27,6 +27,7 @@ from .services.simulator import simulator
 from .services.ai_search import ai_search
 from .services.contract_parser import contract_parser
 from .services.anomaly_detector import anomaly_detector
+from .services.pdf_generator import generate_order_pdf   # <-- NOWY IMPORT
 
 # Konfiguracja logowania systemowego
 logging.basicConfig(
@@ -96,7 +97,7 @@ async def lifespan(app: FastAPI):
 app = FastAPI(
     title="Procurement Pro ERP - Intelligent Sourcing System",
     description="Zaawansowany system ERP z modułami AI i Digital Twin.",
-    version="5.6.9",
+    version="5.7.0",
     docs_url="/docs",
     lifespan=lifespan
 )
@@ -115,36 +116,6 @@ def get_db() -> Generator[Session, None, None]:
         yield db
     finally:
         db.close()
-
-# --- GENERATOR DOKUMENTACJI PDF ---
-class PDFOrderReport(FPDF):
-    def header(self) -> None:
-        self.set_font('Arial', 'B', 18)
-        self.cell(0, 15, 'PROCUREMENT PRO - OFFICIAL PURCHASE ORDER', 0, 1, 'C')
-        self.line(10, 30, 200, 30)
-
-    def footer(self) -> None:
-        self.set_y(-25)
-        self.set_font('Arial', 'I', 8)
-        date_str = simulator.effective_date.strftime("%Y-%m-%d %H:%M:%S")
-        self.cell(0, 10, f'Dokument wygenerowany systemowo: {date_str} | Strona {self.page_no()}/{{nb}}', 0, 0, 'C')
-
-    def add_order_details(self, order: models.Order, product: models.Product, supplier: models.Supplier) -> None:
-        self.ln(10)
-        self.set_font('Arial', 'B', 12)
-        self.cell(0, 10, f'ID ZAMÓWIENIA: {order.id}', 0, 1)
-        self.set_font('Arial', '', 11)
-        data = [
-            ["Status:", order.status.upper()],
-            ["Dostawca:", supplier.name if supplier else "Giełda Spot"],
-            ["Produkt:", product.name],
-            ["Ilość:", f"{order.quantity} {product.unit or 'szt.'}"],
-            ["Wartość Total:", f"{order.total_price:.2f} PLN"],
-            ["Data dostawy:", order.estimated_delivery.strftime("%Y-%m-%d") if order.estimated_delivery else "TBD"]
-        ]
-        for row in data:
-            self.cell(50, 8, row[0], 0, 0)
-            self.cell(0, 8, str(row[1]), 0, 1)
 
 # --- ENDPOINTY: PRODUKTY ---
 @app.get("/products", response_model=List[schemas.Product])
@@ -237,7 +208,7 @@ def create_order(order_in: schemas.OrderCreate, db: Session = Depends(get_db)) -
         delay_days=0,
         is_anomaly=is_anomaly,
         anomaly_score=raw_score,
-        pending_days=0  # nowe pole
+        pending_days=0
     )
 
     db.add(new_order)
@@ -275,7 +246,7 @@ def approve_order(order_id: str, db: Session = Depends(get_db)) -> Dict[str, str
     if not order: 
         raise HTTPException(status_code=404)
     order.status = "ordered"
-    order.pending_days = 0   # reset licznika oczekiwania
+    order.pending_days = 0
     db.commit()
     return {"status": "success"}
 
@@ -285,7 +256,6 @@ def reject_order(order_id: str, db: Session = Depends(get_db)) -> Dict[str, str]
     if not order: 
         raise HTTPException(status_code=404)
     order.status = "cancelled"
-    # opcjonalnie można też wyzerować pending_days, ale nie jest to konieczne
     db.commit()
     return {"status": "success"}
 
@@ -463,17 +433,24 @@ def simulation_what_if(delay_days: int = 0, demand_spike: float = 0.0) -> List[D
         days.append({"day": f"Dzień {i}", "stock": stock_val, "baseline": baseline_val})
     return days
 
+# --- ULEPSZONY ENDPOINT PDF ---
 @app.get("/orders/{order_id}/pdf")
 async def download_order_pdf(order_id: str, db: Session = Depends(get_db)) -> FileResponse:
     order = db.query(models.Order).filter(models.Order.id == order_id).first()
     if not order: 
         raise HTTPException(status_code=404)
-    pdf = PDFOrderReport()
-    pdf.add_page()
-    pdf.add_order_details(order, order.product, order.supplier)
-    file_name = f"Order_{order.id}.pdf"
-    pdf.output(file_name)
-    return FileResponse(file_name, media_type='application/pdf', filename=file_name)
+    
+    pdf_dir = "generated_orders"
+    pdf_path = os.path.join(pdf_dir, f"Order_{order.id}.pdf")
+    
+    # Jeśli plik nie istnieje, wygeneruj go
+    if not os.path.exists(pdf_path):
+        try:
+            generate_order_pdf(order, output_dir=pdf_dir)
+        except Exception as e:
+            raise HTTPException(status_code=500, detail=f"Błąd generowania PDF: {e}")
+    
+    return FileResponse(pdf_path, media_type='application/pdf', filename=f"Zamowienie_{order.id}.pdf")
 
 @app.post("/contracts/upload", response_model=schemas.ContractInfo)
 async def upload_contract_ai(file: UploadFile = File(...), db: Session = Depends(get_db)) -> schemas.ContractInfo:
